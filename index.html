@@ -91,6 +91,8 @@
   .build-key .k.fresh { border-color: #d4b106; box-shadow: 0 0 5px rgba(212,177,6,.95); }
   .build-key .k.past { opacity: .4; }
   @media (prefers-reduced-motion: reduce) { .build .ly { transition: none; } }
+  .tabs .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .tabs .st { padding: 2px 6px; }
   .tabs .flow { font: 700 22px/1 var(--sans); color: var(--accent); padding: 0 2px; }
   .tabs .aimd .menu.aim { display: block; width: min(560px, calc(100vw - 32px)); padding: 12px 16px; font: 400 14px/1.5 var(--sans); color: var(--fg); }
   .tabs .aimd .ic-aim { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fffbea; font-size: 12px; font-weight: 700; }
@@ -209,6 +211,17 @@
   .mini { display: block; width: 100%; height: auto; }
   .mini text { font-size: 11px; }
   .mini .t-strong { font-size: 12px; }
+  @media (min-width: 1000px) {
+    .tabs { flex-wrap: nowrap; align-items: center; }
+    .tabs .st { display: none; }
+    .tabs .tgroup { flex-wrap: nowrap; gap: 5px; padding: 2px 6px 6px; }
+    .tabs .solo { flex-wrap: nowrap; flex: none; padding-bottom: 0; margin-top: 8px; }
+    .tabs button, .tabs a, .tabs .vids summary { font-size: 13px; gap: 5px; white-space: nowrap; }
+    .tabs button { padding: 6px 9px 6px 6px; }
+    .tabs .n { width: 22px; height: 22px; }
+    .tabs a.ext, .tabs .vids summary { padding: 6px 11px; }
+    .tabs .flow { font-size: 18px; padding: 0; }
+  }
 </style>
 </head>
 <body>
@@ -242,10 +255,10 @@
   <nav class="tabs">
     <fieldset class="tgroup" role="tablist" aria-label="VLM image-token compression">
       <legend>VLM image-token compression</legend>
-    <button type="button" role="tab" id="t-ft" aria-controls="tab-ft"><span class="n">1</span>Fine-tuning<span class="st">✓ done</span></button>
-    <button type="button" role="tab" id="t-moe" aria-controls="tab-moe"><span class="n">2</span>MoE compressor<span class="st">✓ done</span></button>
-    <button type="button" role="tab" id="t-qa" aria-controls="tab-qa"><span class="n">3</span>Question-aware MoE<span class="st">✓ done</span></button>
-    <button type="button" role="tab" id="t-bench" aria-controls="tab-bench"><span class="n">4</span>Beyond POPE<span class="st">✓ done</span></button>
+    <button type="button" role="tab" id="t-ft" aria-controls="tab-ft"><span class="n">1</span>Fine-tuning<span class="st" title="done">✓<span class="vh"> done</span></span></button>
+    <button type="button" role="tab" id="t-moe" aria-controls="tab-moe"><span class="n">2</span>MoE compressor<span class="st" title="done">✓<span class="vh"> done</span></span></button>
+    <button type="button" role="tab" id="t-qa" aria-controls="tab-qa"><span class="n">3</span>Question-aware<span class="st" title="done">✓<span class="vh"> done</span></span></button>
+    <button type="button" role="tab" id="t-bench" aria-controls="tab-bench"><span class="n">4</span>Beyond POPE<span class="st" title="done">✓<span class="vh"> done</span></span></button>
     <span class="flow" aria-hidden="true">⟶</span>
     <details class="vids aimd"><summary><span class="ic-aim" aria-hidden="true">i</span>Aim &amp; result</summary>
       <div class="menu aim" role="note" aria-label="Aim and conclusion of the project">
