@@ -8,33 +8,16 @@
 <style>
   /* Layout: one cloud-architecture canvas (groups = stages, tiles = parts), numbered badges = plan steps */
   :root {
-    --bg: #eef2f6; --canvas: #ffffff; --fg: #1b2a38; --muted: #5b6b7b; --line: #c6d0da;
-    --accent: #0f6cbd; --accent-soft: #e5effa; --drop: #c4542b; --drop-soft: #fbece6;
-    --ok: #107c41; --ok-soft: #e4f3ea; --group: #f7f9fb;
+    --bg: #e4dcc0; --canvas: #f7f3e6; --fg: #2f2a1c; --muted: #675d43; --line: #c9bc95;
+    --accent: #5f6b1f; --accent-soft: #ece9cf; --drop: #c4542b; --drop-soft: #fbece6;
+    --ok: #107c41; --ok-soft: #e4f3ea; --group: #efe8d2;
     --c-in: #1f6fd1; --c-in-soft: #e4eefc; --c-router: #7a3fd6; --c-router-soft: #efe6fb;
     --c-exp: #2b8a3e; --c-exp-1: #e6f4ea; --c-exp-2: #c6e8cf; --c-exp-3: #a3d9b1;
-    --c-lora: #d9480f; --c-lora-soft: #fff0e6; --c-eval: #c92a2a; --c-eval-soft: #fdeaea; --c-frozen: #eef1f4;
+    --c-lora: #d9480f; --c-lora-soft: #fff0e6; --c-eval: #c92a2a; --c-eval-soft: #fdeaea; --c-frozen: #ebe4cc;
     --c-ctrl: #0b7285; --c-ctrl-soft: #e1f3f6; --c-qa: #c2255c; --c-qa-soft: #fdebf2; --c-check: #a67c00; --c-check-soft: #fbf1cf;
+    color-scheme: light;
     --sans: "Source Sans 3", "Segoe UI", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
   }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-    --bg: #0e151d; --canvas: #141e28; --fg: #e3eaf1; --muted: #93a3b3; --line: #2f3f4f;
-    --accent: #4aa3f0; --accent-soft: #15314b; --drop: #f08a62; --drop-soft: #3a2219;
-    --ok: #4cc27f; --ok-soft: #15301f; --group: #17222d;
-    --c-in: #5c9ded; --c-in-soft: #142a47; --c-router: #b48cf2; --c-router-soft: #2a1d45;
-    --c-exp: #5fcf7a; --c-exp-1: #12301b; --c-exp-2: #194326; --c-exp-3: #215a33;
-    --c-lora: #ff8a4c; --c-lora-soft: #3d2212; --c-eval: #ff6b6b; --c-eval-soft: #3d1717; --c-frozen: #1b2632;
-    --c-ctrl: #3bc9db; --c-ctrl-soft: #0f3036; --c-qa: #f06595; --c-qa-soft: #3d1526; --c-check: #f2c94c; --c-check-soft: #3a3010;
-    color-scheme: dark } }
-  :root[data-theme="dark"] {
-    --bg: #0e151d; --canvas: #141e28; --fg: #e3eaf1; --muted: #93a3b3; --line: #2f3f4f;
-    --accent: #4aa3f0; --accent-soft: #15314b; --drop: #f08a62; --drop-soft: #3a2219;
-    --ok: #4cc27f; --ok-soft: #15301f; --group: #17222d;
-    --c-in: #5c9ded; --c-in-soft: #142a47; --c-router: #b48cf2; --c-router-soft: #2a1d45;
-    --c-exp: #5fcf7a; --c-exp-1: #12301b; --c-exp-2: #194326; --c-exp-3: #215a33;
-    --c-lora: #ff8a4c; --c-lora-soft: #3d2212; --c-eval: #ff6b6b; --c-eval-soft: #3d1717; --c-frozen: #1b2632;
-    --c-ctrl: #3bc9db; --c-ctrl-soft: #0f3036; --c-qa: #f06595; --c-qa-soft: #3d1526; --c-check: #f2c94c; --c-check-soft: #3a3010;
-    color-scheme: dark }
   body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--sans); }
   main { max-width: 1180px; margin: 0 auto; padding-block: 28px 40px;
          padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
