@@ -81,14 +81,12 @@
   .refs h2 { margin: 0; font-size: 1rem; }
   .refs ol { margin: 0; padding-left: 1.3em; display: grid; gap: 4px; max-width: 90ch; }
   .refs a { color: var(--accent); }
-  .aim { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: start; padding: 12px 16px; background: var(--canvas);
-    border: 1px solid var(--line); border-left: 5px solid #d4b106; border-radius: 10px; font-size: 15px; line-height: 1.5; }
-  .aim .hi { font: 700 12px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: #3d3200; background: #f9e27a; border: 1px solid #d4b106; border-radius: 999px; padding: 3px 10px; margin-top: 1px; }
+  .tabs .aimd .menu.aim { display: block; width: min(560px, calc(100vw - 32px)); padding: 12px 16px; font: 400 14px/1.5 var(--sans); color: var(--fg); }
+  .tabs .aimd .ic-aim { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fffbea; font-size: 12px; font-weight: 700; }
   .aim p { margin: 0; }
+  .aim ol, .aim ul { margin: 6px 0 0; padding-left: 1.3em; display: grid; gap: 3px; }
   .aim .concl { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
-  .aim .concl ul { margin: 4px 0 0; padding-left: 1.3em; display: grid; gap: 2px; }
-  .aim ol { margin: 4px 0 0; padding-left: 1.3em; display: grid; gap: 2px; }
-  @media (max-width: 560px) { .aim { grid-template-columns: 1fr; } }
+  @media (max-width: 640px) { .tabs .aimd .menu.aim { left: auto; right: 0; } }
   .howto { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 10px 14px; background: var(--canvas);
     border: 1px solid var(--line); border-left: 5px solid var(--accent); border-radius: 10px; font-size: 14px; color: var(--fg); }
   .howto > span { display: inline-flex; align-items: center; gap: 8px; }
@@ -247,29 +245,30 @@
         <a href="https://vimeo.com/1049019449" target="_blank" rel="noopener"><span class="play" aria-hidden="true">▶</span>C# / Python REST API<small>Vimeo · 0:22</small></a>
       </div>
     </details>
+    <details class="vids aimd"><summary><span class="ic-aim" aria-hidden="true">i</span>Aim &amp; result</summary>
+      <div class="menu aim" role="note" aria-label="Aim and conclusion of the project">
+    <div>
+          <p>A vision-language model (VLM) changes each image into hundreds of tokens (≈ 269 for Qwen3-VL-4B). These tokens make the answer slow and use much memory, mainly on small devices such as an 8 GB Apple M1. <b>The aim: give the model only a small number of image tokens (16 to 128) and keep the answer quality.</b> The four tabs show the steps:</p>
+          <ol>
+            <li>Find out why the quality drops when tokens are removed.</li>
+            <li>Train compressors that make 16, 48 or 128 tokens, and a router that selects one.</li>
+            <li>Let the compressor also read the question.</li>
+            <li>Test on real tasks: GQA (objects) and TextVQA (text in images).</li>
+          </ol>
+          <div class="concl">
+            <p><b>Conclusion:</b></p>
+            <ul>
+              <li>The quality drops mostly because image data is lost, not because the model never saw such input in training.</li>
+              <li>One trained compressor with 48 tokens (18% of the tokens) gives 89.3% on POPE. All tokens give 91.3%, and the difference is not significant (p = 0.29). The router uses only 19.3 tokens on average, but reaches only 86.0%.</li>
+              <li>Reading the question did not help: the result stayed at 86.0%.</li>
+              <li>For questions about objects, 48 tokens are enough: GQA 58.7% against 61.7% with all tokens (p = 0.26). To read text in images, the model needs many tokens: TextVQA falls from 81.2% to 24.0%.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </details>
     </div>
   </nav>
-  <section class="aim" aria-label="Aim of the project">
-    <span class="hi">Aim</span>
-    <div>
-      <p>A vision-language model (VLM) changes each image into hundreds of tokens (≈ 269 for Qwen3-VL-4B). These tokens make the answer slow and use much memory, mainly on small devices such as an 8 GB Apple M1. <b>The aim: give the model only a small number of image tokens (16 to 128) and keep the answer quality.</b> The four tabs show the steps:</p>
-      <ol>
-        <li>Find out why the quality drops when tokens are removed.</li>
-        <li>Train compressors that make 16, 48 or 128 tokens, and a router that selects one.</li>
-        <li>Let the compressor also read the question.</li>
-        <li>Test on real tasks: GQA (objects) and TextVQA (text in images).</li>
-      </ol>
-      <div class="concl">
-        <p><b>Conclusion:</b></p>
-        <ul>
-          <li>The quality drops mostly because image data is lost, not because the model never saw such input in training.</li>
-          <li>One trained compressor with 48 tokens (18% of the tokens) gives 89.3% on POPE. All tokens give 91.3%, and the difference is not significant (p = 0.29). The router uses only 19.3 tokens on average, but reaches only 86.0%.</li>
-          <li>Reading the question did not help: the result stayed at 86.0%.</li>
-          <li>For questions about objects, 48 tokens are enough: GQA 58.7% against 61.7% with all tokens (p = 0.26). To read text in images, the model needs many tokens: TextVQA falls from 81.2% to 24.0%.</li>
-        </ul>
-      </div>
-    </div>
-  </section>
   <div class="howto" role="note" aria-label="How to read the diagram">
     <span class="hi">How to read</span>
     <span><i class="ic click" aria-hidden="true">↖</i>Click any box for details and results</span>
@@ -1081,9 +1080,10 @@ function pick(id) {
   hide();
 }
 Object.keys(tabs).forEach(b => document.getElementById(b).addEventListener('click', () => pick(b)));
-const vids = document.querySelector('.tabs .vids');
-document.addEventListener('click', e => { if (vids.open && !vids.contains(e.target)) vids.open = false; });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') vids.open = false; });
+const menus = [...document.querySelectorAll('.tabs details.vids')];
+document.addEventListener('click', e => menus.forEach(m => { if (m.open && !m.contains(e.target)) m.open = false; }));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') menus.forEach(m => m.open = false); });
+menus.forEach(m => m.addEventListener('toggle', () => { if (m.open) menus.forEach(o => { if (o !== m) o.open = false; }); }));
 pick(location.hash === '#ft' ? 't-ft' : location.hash === '#moe' ? 't-moe' : location.hash === '#qa' ? 't-qa' : 't-bench');
 </script>
 </body>
