@@ -1,0 +1,1011 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drop-Aware Fine-Tuning Pipeline</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: one cloud-architecture canvas (groups = stages, tiles = parts), numbered badges = plan steps */
+  :root {
+    --bg: #eef2f6; --canvas: #ffffff; --fg: #1b2a38; --muted: #5b6b7b; --line: #c6d0da;
+    --accent: #0f6cbd; --accent-soft: #e5effa; --drop: #c4542b; --drop-soft: #fbece6;
+    --ok: #107c41; --ok-soft: #e4f3ea; --group: #f7f9fb;
+    --c-in: #1f6fd1; --c-in-soft: #e4eefc; --c-router: #7a3fd6; --c-router-soft: #efe6fb;
+    --c-exp: #2b8a3e; --c-exp-1: #e6f4ea; --c-exp-2: #c6e8cf; --c-exp-3: #a3d9b1;
+    --c-lora: #d9480f; --c-lora-soft: #fff0e6; --c-eval: #c92a2a; --c-eval-soft: #fdeaea; --c-frozen: #eef1f4;
+    --c-ctrl: #0b7285; --c-ctrl-soft: #e1f3f6; --c-qa: #c2255c; --c-qa-soft: #fdebf2; --c-check: #a67c00; --c-check-soft: #fbf1cf;
+    --sans: "Source Sans 3", "Segoe UI", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg: #0e151d; --canvas: #141e28; --fg: #e3eaf1; --muted: #93a3b3; --line: #2f3f4f;
+    --accent: #4aa3f0; --accent-soft: #15314b; --drop: #f08a62; --drop-soft: #3a2219;
+    --ok: #4cc27f; --ok-soft: #15301f; --group: #17222d;
+    --c-in: #5c9ded; --c-in-soft: #142a47; --c-router: #b48cf2; --c-router-soft: #2a1d45;
+    --c-exp: #5fcf7a; --c-exp-1: #12301b; --c-exp-2: #194326; --c-exp-3: #215a33;
+    --c-lora: #ff8a4c; --c-lora-soft: #3d2212; --c-eval: #ff6b6b; --c-eval-soft: #3d1717; --c-frozen: #1b2632;
+    --c-ctrl: #3bc9db; --c-ctrl-soft: #0f3036; --c-qa: #f06595; --c-qa-soft: #3d1526; --c-check: #f2c94c; --c-check-soft: #3a3010;
+    color-scheme: dark } }
+  :root[data-theme="dark"] {
+    --bg: #0e151d; --canvas: #141e28; --fg: #e3eaf1; --muted: #93a3b3; --line: #2f3f4f;
+    --accent: #4aa3f0; --accent-soft: #15314b; --drop: #f08a62; --drop-soft: #3a2219;
+    --ok: #4cc27f; --ok-soft: #15301f; --group: #17222d;
+    --c-in: #5c9ded; --c-in-soft: #142a47; --c-router: #b48cf2; --c-router-soft: #2a1d45;
+    --c-exp: #5fcf7a; --c-exp-1: #12301b; --c-exp-2: #194326; --c-exp-3: #215a33;
+    --c-lora: #ff8a4c; --c-lora-soft: #3d2212; --c-eval: #ff6b6b; --c-eval-soft: #3d1717; --c-frozen: #1b2632;
+    --c-ctrl: #3bc9db; --c-ctrl-soft: #0f3036; --c-qa: #f06595; --c-qa-soft: #3d1526; --c-check: #f2c94c; --c-check-soft: #3a3010;
+    color-scheme: dark }
+  body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--sans); }
+  main { max-width: 1180px; margin: 0 auto; padding-block: 28px 40px;
+         padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+         display: grid; gap: 16px; }
+  h1 { margin: 0; font-size: 1.6rem; text-wrap: balance; }
+  .sub { margin: 0; color: var(--muted); max-width: 70ch; }
+  .canvas { background: var(--canvas); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; }
+  .canvas svg { display: block; width: 100%; min-width: 980px; height: auto; }
+  svg text { fill: var(--fg); font-family: var(--sans); font-size: 13px; }
+  svg .t-strong { font-weight: 600; font-size: 14px; }
+  svg .t-dim { fill: var(--muted); font-size: 12px; }
+  svg .t-group { fill: var(--muted); font: 600 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+  svg .t-badge { fill: #fff; font: 600 12px var(--sans); }
+  svg .group { fill: var(--group); stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+  svg .tile { fill: var(--canvas); stroke: var(--line); stroke-width: 1.2; }
+  svg .tile.key { stroke: var(--accent); stroke-width: 1.6; }
+  svg .tile.drop { fill: var(--drop-soft); stroke: var(--drop); stroke-width: 1.4; }
+  svg .tile.done { fill: var(--ok-soft); stroke: var(--ok); stroke-width: 1.4; }
+  svg .icon { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+  svg .icon.drop { stroke: var(--drop); } svg .icon.ok { stroke: var(--ok); }
+  svg .flow { fill: none; stroke: var(--muted); stroke-width: 1.6; }
+  svg .flow.w { stroke: var(--accent); stroke-dasharray: 5 4; }
+  svg .head { fill: var(--muted); } svg .head-w { fill: var(--accent); }
+  svg .badge { fill: var(--accent); }
+  svg .hot { fill: transparent; stroke: transparent; stroke-width: 2.5; cursor: pointer; }
+  svg .tick { pointer-events: none; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.3)); }
+  svg .tick circle { fill: var(--ok); stroke: var(--canvas); stroke-width: 2; }
+  svg .tick path { fill: none; stroke: #fff; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+  svg .hot:hover { stroke: var(--accent); }
+  svg .hot:focus-visible { outline: none; stroke: var(--accent); stroke-dasharray: 4 3; }
+  svg .hot.sel { stroke: var(--accent); fill: var(--accent-soft); fill-opacity: .35; }
+  .detail { position: fixed; z-index: 11; width: min(480px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow-y: auto; background: var(--canvas); border: 1px solid var(--accent); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.25); padding: 14px 16px; display: grid; gap: 10px; }
+  .detail[hidden] { display: none; }
+  .detail .x { position: absolute; top: 8px; right: 8px; font: 600 18px var(--sans); line-height: 1; color: var(--fg); background: none; border: 0; cursor: pointer; padding: 2px 6px; }
+  .detail h2 { padding-right: 28px; }
+  .detail h2 { margin: 0; font-size: 1.15rem; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .pill { font: 600 11px var(--mono); letter-spacing: .05em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; }
+  .pill.done { color: var(--ok); background: var(--ok-soft); }
+  .pill.plan { color: var(--muted); background: var(--group); border: 1px solid var(--line); }
+  .detail p { margin: 0; max-width: 75ch; }
+  .detail ul { margin: 0; padding-left: 1.2em; display: grid; gap: 3px; }
+  .detail .wrap { overflow-x: auto; }
+  .detail table { border-collapse: collapse; font-variant-numeric: tabular-nums; min-width: 420px; }
+  .detail th, .detail td { text-align: right; padding: 4px 12px; border-bottom: 1px solid var(--line); }
+  .detail th:first-child, .detail td:first-child { text-align: left; }
+  .detail th { color: var(--muted); font-weight: 600; font-size: 13px; }
+  .hint { color: var(--muted); font-size: 14px; margin: 0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 22px; color: var(--muted); font-size: 14px; }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .sw { width: 26px; height: 0; border-top: 2px solid var(--muted); }
+  .sw.w { border-top: 2px dashed var(--accent); }
+  .bx { width: 16px; height: 12px; border-radius: 3px; border: 1.5px solid var(--line); background: var(--canvas); }
+  .bx.drop { border-color: var(--drop); background: var(--drop-soft); }
+  .bx.done { border-color: var(--ok); background: var(--ok-soft); }
+  .bx.fin { border: 2.5px solid var(--ok); }
+  .num { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; }
+  ol { margin: 0; padding-left: 1.3em; display: grid; gap: 4px; max-width: 80ch; }
+  ol b { font-weight: 600; }
+  .note { color: var(--muted); font-size: 14px; margin: 0; }
+  .refs { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 14px; font-size: 14px; }
+  .refs h2 { margin: 0; font-size: 1rem; }
+  .refs ol { margin: 0; padding-left: 1.3em; display: grid; gap: 4px; max-width: 90ch; }
+  .refs a { color: var(--accent); }
+  .open-help { justify-self: start; font: 600 14px var(--sans); color: var(--accent); background: var(--canvas); border: 1px solid var(--accent); border-radius: 6px; padding: 7px 14px; cursor: pointer; }
+  .open-help:hover { background: var(--accent-soft); }
+  .help { position: fixed; top: 90px; right: 24px; z-index: 10; width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 120px); display: flex; flex-direction: column; background: var(--canvas); border: 1px solid var(--accent); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.25); }
+  .help[hidden] { display: none; }
+  .help .bar { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--line); background: var(--accent-soft); border-radius: 8px 8px 0 0; cursor: move; user-select: none; touch-action: none; font-weight: 600; }
+  .help .bar span { flex: 1; }
+  .help .bar button { font: 600 16px var(--sans); line-height: 1; color: var(--fg); background: none; border: 0; cursor: pointer; padding: 2px 6px; }
+  .help .body { overflow-y: auto; padding: 10px 14px 14px; display: grid; gap: 6px; font-size: 14px; }
+  .help details { border: 1px solid var(--line); border-radius: 6px; }
+  .help summary { cursor: pointer; padding: 6px 10px; font-weight: 600; }
+  .help summary:hover { color: var(--accent); }
+  .help details > :not(summary) { margin: 0 10px 8px; }
+  .help p { margin: 0; }
+  .help ul { padding-left: 1.2em; display: grid; gap: 3px; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .tabs button { font: 600 14px var(--sans); color: var(--muted); background: none; border: 0; border-bottom: 3px solid transparent; padding: 8px 14px; cursor: pointer; }
+  .tabs button:hover { color: var(--fg); }
+  .tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab { display: grid; gap: 16px; }
+  .tab[hidden] { display: none; }
+  svg .tile.new { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.6; }
+  svg .group.new { fill: none; stroke: var(--accent); stroke-width: 1.6; }
+  svg .t-mid { text-anchor: middle; }
+  svg .flow.pick { stroke: var(--accent); stroke-dasharray: 1 4; stroke-linecap: round; stroke-width: 2; }
+  .sw.pick { border-top: 3px dotted var(--accent); }
+  .bx.new { border-color: var(--accent); background: var(--accent-soft); }
+  .legend[hidden], .order[hidden] { display: none; }
+  .order { margin: 0; padding-left: 1.4em; display: grid; gap: 3px; font-size: 14px; max-width: 90ch; }
+  .order li::marker { color: var(--accent); font-weight: 700; }
+  svg .tile.c-in { fill: var(--c-in-soft); stroke: var(--c-in); stroke-width: 1.4; }
+  svg .tile.c-frozen { fill: var(--c-frozen); stroke: var(--line); stroke-width: 1.2; }
+  svg .tile.c-router { fill: var(--c-router-soft); stroke: var(--c-router); stroke-width: 1.6; }
+  svg .tile.c-exp1 { fill: var(--c-exp-1); stroke: var(--c-exp); stroke-width: 1.6; }
+  svg .tile.c-exp2 { fill: var(--c-exp-2); stroke: var(--c-exp); stroke-width: 1.6; }
+  svg .tile.c-exp3 { fill: var(--c-exp-3); stroke: var(--c-exp); stroke-width: 1.6; }
+  svg .tile.c-lora { fill: var(--c-frozen); stroke: var(--c-lora); stroke-width: 1.6; stroke-dasharray: 5 3; }
+  svg .c-lora-t { fill: var(--c-lora); font-weight: 600; }
+  svg .tile.c-eval { fill: var(--c-eval-soft); stroke: var(--c-eval); stroke-width: 1.4; }
+  svg .flow.pick { stroke: var(--c-router); stroke-width: 2.5; stroke-dasharray: 1.5 4; }
+  svg .t-pick { fill: var(--c-router); font-size: 11px; font-weight: 600; }
+  .bx.c-in { border-color: var(--c-in); background: var(--c-in-soft); }
+  .bx.c-frozen { border-color: var(--line); background: var(--c-frozen); }
+  .bx.c-router { border-color: var(--c-router); background: var(--c-router-soft); }
+  .bx.c-exp { border-color: var(--c-exp); background: linear-gradient(90deg, var(--c-exp-1), var(--c-exp-3)); }
+  .bx.c-lora { border: 1.5px dashed var(--c-lora); background: var(--c-frozen); }
+  .bx.c-eval { border-color: var(--c-eval); background: var(--c-eval-soft); }
+  .sw.pick { border-top-color: var(--c-router); }
+  svg .tile.c-ctrl { fill: var(--c-ctrl-soft); stroke: var(--c-ctrl); stroke-width: 1.4; }
+  svg .tile.c-check { fill: var(--c-check-soft); stroke: var(--c-check); stroke-width: 1.4; }
+  .bx.c-ctrl { border-color: var(--c-ctrl); background: var(--c-ctrl-soft); }
+  .bx.c-check { border-color: var(--c-check); background: var(--c-check-soft); }
+  svg .tile.c-exp1 { fill: url(#hatch-1); }
+  svg .tile.c-exp2 { fill: url(#hatch-2); }
+  svg .tile.c-exp3 { fill: url(#hatch-3); }
+  .bx.c-exp { background: repeating-linear-gradient(45deg, var(--c-exp-2) 0 3px, color-mix(in srgb, var(--c-exp) 45%, var(--c-exp-2)) 3px 4.5px); }
+  svg .tile.c-router { fill: url(#hatch-router); }
+  .bx.c-router { background: repeating-linear-gradient(0deg, var(--c-router-soft) 0 3px, color-mix(in srgb, var(--c-router) 40%, var(--c-router-soft)) 3px 4.5px); }
+  .bx.c-exp { border-color: var(--c-exp); }
+  svg .tile.c-eval { fill: url(#dots-eval); }
+  svg .tile.c-qa { fill: url(#grid-qa); stroke: var(--c-qa); stroke-width: 1.8; }
+  .bx.c-qa { border-color: var(--c-qa); background: repeating-linear-gradient(0deg, transparent 0 4px, color-mix(in srgb, var(--c-qa) 35%, transparent) 4px 5px), repeating-linear-gradient(90deg, var(--c-qa-soft) 0 4px, color-mix(in srgb, var(--c-qa) 35%, var(--c-qa-soft)) 4px 5px); }
+  svg .flow.qa { stroke: var(--c-qa); stroke-width: 2; }
+  .bx.c-eval { background: radial-gradient(circle, color-mix(in srgb, var(--c-eval) 45%, transparent) 1px, var(--c-eval-soft) 1.5px) 0 0 / 5px 5px; }
+  .sw-arrow { flex: none; }
+  .mini { display: block; width: 100%; height: auto; }
+  .mini text { font-size: 11px; }
+  .mini .t-strong { font-size: 12px; }
+</style>
+</head>
+<body>
+
+<main>
+  <!-- Shared SVG parts: outside the tabs, so hidden tabs do not hide them -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+        <marker id="aw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head-w" d="M0,0 L10,5 L0,10 z"/></marker>
+        <g id="i-db"><ellipse cx="11" cy="5" rx="9" ry="3.5"/><path d="M2,5 V17 C2,19 6,20.5 11,20.5 C16,20.5 20,19 20,17 V5"/><path d="M2,11 C2,13 6,14.5 11,14.5 C16,14.5 20,13 20,11"/></g>
+        <g id="i-code"><path d="M4,2 H14 L19,7 V21 H4 Z"/><path d="M8,12 L6,14 L8,16 M15,12 L17,14 L15,16"/></g>
+        <g id="i-chip"><rect x="5" y="5" width="13" height="13" rx="2"/><path d="M9,1 V5 M14,1 V5 M9,18 V22 M14,18 V22 M1,9 H5 M1,14 H5 M18,9 H22 M18,14 H22"/></g>
+        <g id="i-grid"><rect x="2" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5" stroke-dasharray="2 2"/><rect x="2" y="13" width="8" height="8" rx="1.5" stroke-dasharray="2 2"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></g>
+        <g id="i-loop"><path d="M19,9 A8,8 0 1 0 19.5,15"/><path d="M19,3 V9 H13"/></g>
+        <g id="i-file"><path d="M5,2 H14 L19,7 V21 H5 Z"/><path d="M14,2 V7 H19"/><path d="M8,12 H16 M8,16 H14"/></g>
+        <g id="i-run"><path d="M6,4 L19,12 L6,20 Z"/></g>
+        <g id="i-chart"><path d="M3,20 H21"/><path d="M5,16 L10,11 L14,14 L20,6"/></g>
+        <g id="i-check"><circle cx="11" cy="11" r="9"/><path d="M6.5,11.5 L9.5,14.5 L15.5,8"/></g>
+        <pattern id="hatch-1" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(45)"><rect width="7" height="7" style="fill: var(--c-exp-1)"/><line x1="0" y1="0" x2="0" y2="7" style="stroke: var(--c-exp); stroke-width: 1.4; stroke-opacity: .35"/></pattern>
+        <pattern id="hatch-2" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(45)"><rect width="7" height="7" style="fill: var(--c-exp-2)"/><line x1="0" y1="0" x2="0" y2="7" style="stroke: var(--c-exp); stroke-width: 1.4; stroke-opacity: .35"/></pattern>
+        <pattern id="hatch-3" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(45)"><rect width="7" height="7" style="fill: var(--c-exp-3)"/><line x1="0" y1="0" x2="0" y2="7" style="stroke: var(--c-exp); stroke-width: 1.4; stroke-opacity: .35"/></pattern>
+        <pattern id="hatch-router" patternUnits="userSpaceOnUse" width="7" height="7"><rect width="7" height="7" style="fill: var(--c-router-soft)"/><line x1="0" y1="3.5" x2="7" y2="3.5" style="stroke: var(--c-router); stroke-width: 1; stroke-opacity: .22"/></pattern>
+        <pattern id="dots-eval" patternUnits="userSpaceOnUse" width="7" height="7"><rect width="7" height="7" style="fill: var(--c-eval-soft)"/><circle cx="3.5" cy="3.5" r="1" style="fill: var(--c-eval); fill-opacity: .25"/></pattern>
+        <pattern id="grid-qa" patternUnits="userSpaceOnUse" width="6" height="6"><rect width="6" height="6" style="fill: var(--c-qa-soft)"/><path d="M0,3 H6 M3,0 V6" style="stroke: var(--c-qa); stroke-width: .8; stroke-opacity: .28"/></pattern>
+        <marker id="aq" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto"><path style="fill: var(--c-qa)" d="M0,0 L10,5 L0,10 z"/></marker>
+        <marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto"><path style="fill: var(--c-router)" d="M0,0 L10,5 L0,10 z"/></marker>
+      </defs>
+  </svg>
+
+  <nav class="tabs" role="tablist">
+    <button type="button" role="tab" id="t-ft" aria-controls="tab-ft">Fine-tuning · done</button>
+    <button type="button" role="tab" id="t-moe" aria-controls="tab-moe">MoE compressor · done</button>
+    <button type="button" role="tab" id="t-qa" aria-controls="tab-qa">Question-aware MoE · done</button>
+    <button type="button" role="tab" id="t-bench" aria-controls="tab-bench">Beyond POPE · done</button>
+  </nav>
+
+  <div class="tab" id="tab-ft" role="tabpanel">
+  <h1>Drop-Aware Fine-Tuning Pipeline</h1>
+  <p class="sub">Is the 4-point loss at 75% token removal caused by lost image data, or by input the model never saw in training? Two LoRA runs answer this. Started 14 Nov, 20:55; finished 15 Nov, 06:24. Answer: mostly lost image data.</p>
+
+  <div class="canvas">
+    <svg viewBox="0 0 1120 580" role="img" aria-label="Pipeline. Data: COCO train2014 annotations go to a question builder, which makes 2,000 yes/no training questions. The POPE test set has 300 questions from val2014. Training: the frozen Qwen3-VL-4B 4-bit model, a token drop of 0 to 75 percent for run C only, and a training step that updates only LoRA weights for about 2,000 steps. Run B uses no drop, run C uses the drop. Outputs: LoRA weights B and C. Evaluation: inference on 300 POPE questions at 0 to 100 percent drop, comparison with run A with McNemar tests, then a chart and write-up that answer: information loss or distribution shift.">
+
+      <!-- Groups -->
+      <rect class="group" x="20" y="40" width="222" height="520" rx="8"/>
+      <text class="t-group" x="34" y="62">Data · local, git-ignored</text>
+      <rect class="group" x="270" y="40" width="420" height="345" rx="8"/>
+      <text class="t-group" x="284" y="62">Training · LoRA on the M1</text>
+      <rect class="group" x="718" y="230" width="190" height="155" rx="8"/>
+      <text class="t-group" x="732" y="252">Outputs</text>
+      <rect class="group" x="270" y="405" width="830" height="155" rx="8"/>
+      <text class="t-group" x="284" y="427">Evaluation · inference</text>
+
+      <!-- Data -->
+      <rect class="tile" x="38" y="80" width="186" height="60" rx="6"/>
+      <use href="#i-db" class="icon" x="48" y="98"/>
+      <text class="t-strong" x="80" y="104">COCO annotations</text><text class="t-dim" x="80" y="122">train2014 · ≈ 240 MB</text>
+      <rect class="tile" x="38" y="182" width="186" height="60" rx="6"/>
+      <use href="#i-code" class="icon" x="48" y="200"/>
+      <text class="t-strong" x="80" y="206">Question builder</text><text class="t-dim" x="80" y="224">script · POPE form</text>
+      <rect class="tile key" x="38" y="284" width="186" height="72" rx="6"/>
+      <use href="#i-db" class="icon" x="48" y="302"/>
+      <text class="t-strong" x="80" y="306">Training set</text><text class="t-dim" x="80" y="324">2,000 yes/no questions</text><text class="t-dim" x="80" y="341">≈ 300 MB images</text>
+      <rect class="tile key" x="38" y="430" width="186" height="72" rx="6"/>
+      <use href="#i-db" class="icon" x="48" y="448"/>
+      <text class="t-strong" x="80" y="452">POPE test set</text><text class="t-dim" x="80" y="470">300 questions, seed 0</text><text class="t-dim" x="80" y="487">val2014 images</text>
+      <path class="flow" d="M131,140 L131,180" marker-end="url(#ah)"/>
+      <path class="flow" d="M131,242 L131,282" marker-end="url(#ah)"/>
+
+      <!-- Training -->
+      <rect class="tile" x="288" y="80" width="186" height="60" rx="6"/>
+      <use href="#i-chip" class="icon" x="298" y="98"/>
+      <text class="t-strong" x="330" y="104">Qwen3-VL-4B</text><text class="t-dim" x="330" y="122">4-bit · weights frozen</text>
+      <rect class="tile drop" x="488" y="80" width="186" height="60" rx="6"/>
+      <use href="#i-grid" class="icon drop" x="498" y="98"/>
+      <text class="t-strong" x="530" y="104">Token drop</text><text class="t-dim" x="530" y="122">0–75% · run C only</text>
+      <rect class="tile key" x="288" y="182" width="386" height="68" rx="6"/>
+      <use href="#i-loop" class="icon" x="298" y="204"/>
+      <text class="t-strong" x="330" y="206">Training step × 1,000</text><text class="t-dim" x="330" y="224">forward → loss → update only the LoRA weights (rank 8)</text><text class="t-dim" x="330" y="240">first: one step to test the 8 GB memory</text>
+      <path class="flow" d="M381,140 L381,180" marker-end="url(#ah)"/>
+      <path class="flow" d="M581,140 L581,180" marker-end="url(#ah)"/>
+      <rect class="tile" x="288" y="290" width="186" height="56" rx="6"/>
+      <use href="#i-run" class="icon" x="298" y="306"/>
+      <text class="t-strong" x="330" y="313">Run B · control</text><text class="t-dim" x="330" y="331">all tokens kept</text>
+      <rect class="tile drop" x="488" y="290" width="186" height="56" rx="6"/>
+      <use href="#i-run" class="icon drop" x="498" y="306"/>
+      <text class="t-strong" x="530" y="313">Run C · drop-aware</text><text class="t-dim" x="530" y="331">0–75% removed per step</text>
+      <path class="flow" d="M381,250 L381,288" marker-end="url(#ah)"/>
+      <path class="flow" d="M581,250 L581,288" marker-end="url(#ah)"/>
+      <path class="flow" d="M224,320 L250,320 L250,216 L286,216" marker-end="url(#ah)"/>
+
+      <!-- Outputs -->
+      <rect class="tile key" x="736" y="270" width="154" height="78" rx="6"/>
+      <use href="#i-file" class="icon" x="746" y="288"/>
+      <text class="t-strong" x="776" y="292">LoRA weights</text><text class="t-dim" x="776" y="310">B and C</text><text class="t-dim" x="776" y="327">a few MB each</text>
+      <path class="flow w" d="M674,318 L734,318" marker-end="url(#aw)"/>
+      <path class="flow w" d="M381,346 L381,370 L813,370 L813,350" marker-end="url(#aw)"/>
+
+      <!-- Evaluation -->
+      <rect class="tile key" x="288" y="444" width="240" height="72" rx="6"/>
+      <use href="#i-run" class="icon" x="298" y="462"/>
+      <text class="t-strong" x="330" y="466">Inference: B and C</text><text class="t-dim" x="330" y="484">300 POPE × drop 0/25/50/75/100%</text><text class="t-dim" x="330" y="501">model + LoRA · 3,000 answers</text>
+      <rect class="tile" x="568" y="444" width="220" height="60" rx="6"/>
+      <use href="#i-chart" class="icon" x="578" y="462"/>
+      <text class="t-strong" x="610" y="468">Compare</text><text class="t-dim" x="610" y="486">McNemar tests vs. run A</text>
+      <rect class="tile done" x="578" y="518" width="200" height="34" rx="6"/>
+      <use href="#i-check" class="icon ok" x="586" y="524"/>
+      <text x="614" y="540">Run A · baseline <tspan class="t-dim">(done)</tspan></text>
+      <path class="flow" d="M678,518 L678,506" marker-end="url(#ah)"/>
+      <rect class="tile key" x="828" y="444" width="256" height="72" rx="6"/>
+      <use href="#i-file" class="icon" x="838" y="462"/>
+      <text class="t-strong" x="870" y="466">Chart + write-up</text><text class="t-dim" x="870" y="484">Answer: information loss</text><text class="t-dim" x="870" y="501">or distribution shift?</text>
+      <path class="flow" d="M224,466 L286,466" marker-end="url(#ah)"/>
+      <path class="flow" d="M528,474 L566,474" marker-end="url(#ah)"/>
+      <path class="flow" d="M788,474 L826,474" marker-end="url(#ah)"/>
+      <path class="flow w" d="M890,309 L930,309 L930,395 L470,395 L470,442" marker-end="url(#aw)"/>
+
+      <!-- Step badges: plan steps 1-7 -->
+      <g><circle class="badge" cx="38" cy="80" r="11"/><text class="t-badge" x="38" y="84" text-anchor="middle">1</text></g>
+      <g><circle class="badge" cx="38" cy="182" r="11"/><text class="t-badge" x="38" y="186" text-anchor="middle">2</text></g>
+      <g><circle class="badge" cx="288" cy="80" r="11"/><text class="t-badge" x="288" y="84" text-anchor="middle">3</text></g>
+      <g><circle class="badge" cx="288" cy="182" r="11"/><text class="t-badge" x="288" y="186" text-anchor="middle">4</text></g>
+      <g><circle class="badge" cx="288" cy="290" r="11"/><text class="t-badge" x="288" y="294" text-anchor="middle">5</text></g>
+      <g><circle class="badge" cx="488" cy="290" r="11"/><text class="t-badge" x="488" y="294" text-anchor="middle">6</text></g>
+      <g><circle class="badge" cx="288" cy="444" r="11"/><text class="t-badge" x="288" y="448" text-anchor="middle">7</text></g>
+
+      <!-- Corner key -->
+      <text class="t-group" x="960" y="62">Time</text>
+      <text class="t-dim" x="960" y="84">Steps 1–4 ≈ 2 h</text>
+      <text class="t-dim" x="960" y="102">Run B 3.6 h ✓</text>
+      <text class="t-dim" x="960" y="120">Run C 2.3 h ✓</text>
+      <text class="t-dim" x="960" y="138">Evaluation 3.4 h ✓</text>
+      <text x="960" y="160" class="t-strong">Total 9.5 h ✓</text>
+
+      <!-- Click targets: one per box -->
+      <rect class="hot" data-id="coco" x="38" y="80" width="186" height="60" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="builder" x="38" y="182" width="186" height="60" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="trainset" x="38" y="284" width="186" height="72" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="pope" x="38" y="430" width="186" height="72" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="model" x="288" y="80" width="186" height="60" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="drop" x="488" y="80" width="186" height="60" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="step" x="288" y="182" width="386" height="68" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="runB" x="288" y="290" width="186" height="56" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="runC" x="488" y="290" width="186" height="56" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="lora" x="736" y="270" width="154" height="78" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="infer" x="288" y="444" width="240" height="72" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="compare" x="568" y="444" width="220" height="60" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="runA" x="578" y="518" width="200" height="34" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="writeup" x="828" y="444" width="256" height="72" rx="6" tabindex="0" role="button"/>
+    </svg>
+  </div>
+
+  </div>
+
+  <div class="tab" id="tab-moe" role="tabpanel" hidden>
+  <h1>MoE Token Compressor</h1>
+  <p class="sub">Done 16 Nov, 13:57. Result: MoE 86.0% with 19.3 tokens (target: more than 90% with fewer than 50). Expert 48 alone: 89.3% with 48 tokens. Three trained compressors ("experts") make 16, 48 or 128 image tokens from the ≈ 269 tokens of the merger. A router reads the question and picks one expert. Target: more than 90% POPE accuracy with a mean of fewer than 50 tokens. The base model does not change; all new parts are added.</p>
+  <div class="canvas">
+    <svg viewBox="0 0 1120 600" role="img" aria-label="MoE compressor. The image goes through the frozen vision tower and merger to about 269 tokens. A new router reads an image summary and the question and picks one of three new experts, which compress the tokens to 16, 48 or 128. The compressed tokens and the question go to the frozen LLM with LoRA, which answers yes or no. Training: cache the vision output, train the experts in one run, then train the router from saved answers with a cost per token. Evaluation: an attention control with no training, the MoE test on 300 POPE questions, and a chart of accuracy against tokens.">
+      <rect class="group" x="20" y="20" width="1080" height="280" rx="8"/>
+      <text class="t-group" x="34" y="40">Model at inference</text>
+      <rect class="tile c-in" x="40" y="52" width="140" height="48" rx="6"/>
+      <text class="t-strong" x="52" y="76">Question</text>
+      <text class="t-dim" x="52" y="94">"Is there a dog?"</text>
+      <rect class="tile c-in" x="40" y="140" width="140" height="64" rx="6"/>
+      <text class="t-strong" x="52" y="164">Image</text>
+      <text class="t-dim" x="52" y="182">COCO or POPE</text>
+      <rect class="tile c-frozen" x="200" y="140" width="140" height="64" rx="6"/>
+      <text class="t-strong" x="212" y="164">Vision tower</text>
+      <text class="t-dim" x="212" y="182">frozen</text>
+      <rect class="tile c-frozen" x="360" y="140" width="160" height="64" rx="6"/>
+      <text class="t-strong" x="372" y="161">Merger</text>
+      <text class="t-dim" x="372" y="179">frozen · ≈ 269 tokens</text>
+      <text class="t-dim" x="372" y="195">+ 3 deepstack copies</text>
+      <rect class="tile c-lora" x="880" y="140" width="110" height="64" rx="6"/>
+      <text class="t-strong" x="892" y="161">LLM</text>
+      <text class="t-dim" x="892" y="179">frozen</text>
+      <text class="t-dim" x="892" y="195">+ LoRA (trained)</text>
+      <rect class="tile c-in" x="1010" y="140" width="80" height="64" rx="6"/>
+      <text class="t-strong" x="1022" y="164">Answer</text>
+      <text class="t-dim" x="1022" y="182">yes / no</text>
+      <path class="flow" d="M180,172 L198,172" marker-end="url(#ah)"/>
+      <path class="flow" d="M340,172 L358,172" marker-end="url(#ah)"/>
+      <path class="flow" d="M990,172 L1008,172" marker-end="url(#ah)"/>
+      <path class="flow" d="M180,76 L935,76 L935,138" marker-end="url(#ah)"/>
+      <path class="flow" d="M695,76 L695,124" marker-end="url(#ah)"/>
+      <circle cx="695" cy="76" r="3.5" fill="var(--muted)"/>
+      <rect class="group new" x="545" y="100" width="300" height="190" rx="8" stroke-dasharray="6 4"/>
+      <text class="t-group" x="558" y="117" style="fill: var(--accent)">New · trained</text>
+      <rect class="tile c-router" x="560" y="126" width="270" height="46" rx="6"/>
+      <text class="t-strong" x="572" y="150">Router</text>
+      <text class="t-dim" x="572" y="168">image summary + question → 1 expert</text>
+      <rect class="tile c-exp1" x="560" y="210" width="80" height="50" rx="6"/>
+      <text class="t-strong t-mid" x="600" y="231">16</text>
+      <text class="t-dim t-mid" x="600" y="248">tokens</text>
+      <path class="flow pick" d="M600,174 L600,207" marker-end="url(#ap)"/>
+      <rect class="tile c-exp2" x="655" y="210" width="80" height="50" rx="6"/>
+      <text class="t-strong t-mid" x="695" y="231">48</text>
+      <text class="t-dim t-mid" x="695" y="248">tokens</text>
+      <path class="flow pick" d="M695,174 L695,207" marker-end="url(#ap)"/>
+      <rect class="tile c-exp3" x="750" y="210" width="80" height="50" rx="6"/>
+      <text class="t-strong t-mid" x="790" y="231">128</text>
+      <text class="t-dim t-mid" x="790" y="248">tokens</text>
+      <path class="flow pick" d="M790,174 L790,207" marker-end="url(#ap)"/>
+      <text class="t-pick" x="705" y="196">picks 1</text>
+      <text class="t-dim" x="560" y="278">Each expert also pools the deepstack copies.</text>
+      <path class="flow" d="M520,172 L532,172 L532,235 L558,235" marker-end="url(#ah)"/>
+      <path class="flow" d="M830,235 L862,235 L862,172 L878,172" marker-end="url(#ah)"/>
+      <rect class="group" x="20" y="320" width="530" height="130" rx="8"/>
+      <text class="t-group" x="34" y="340">Training · not part of the model</text>
+      <rect class="tile c-frozen" x="40" y="356" width="150" height="64" rx="6"/>
+      <text class="t-strong" x="52" y="377">Cache features</text>
+      <text class="t-dim" x="52" y="395">vision output, once</text>
+      <text class="t-dim" x="52" y="411">≈ 6 GB on disk</text>
+      <rect class="tile c-exp2" x="210" y="356" width="150" height="64" rx="6"/>
+      <text class="t-strong" x="222" y="377">Train experts</text>
+      <text class="t-dim" x="222" y="395">3,000 steps</text>
+      <text class="t-dim" x="222" y="411">random expert each step</text>
+      <rect class="tile c-router" x="380" y="356" width="150" height="64" rx="6"/>
+      <text class="t-strong" x="392" y="377">Train router</text>
+      <text class="t-dim" x="392" y="395">from saved answers</text>
+      <text class="t-dim" x="392" y="411">+ cost per token</text>
+      <path class="flow" d="M190,388 L208,388" marker-end="url(#ah)"/>
+      <path class="flow" d="M360,388 L378,388" marker-end="url(#ah)"/>
+      <rect class="group" x="570" y="320" width="530" height="130" rx="8"/>
+      <text class="t-group" x="584" y="340">Evaluation</text>
+      <rect class="tile c-eval" x="590" y="356" width="150" height="64" rx="6"/>
+      <text class="t-strong" x="602" y="377">Test MoE</text>
+      <text class="t-dim" x="602" y="395">300 POPE questions</text>
+      <text class="t-dim" x="602" y="411">one pass each</text>
+      <rect class="tile c-ctrl" x="760" y="356" width="150" height="64" rx="6"/>
+      <text class="t-strong" x="772" y="377">Control</text>
+      <text class="t-dim" x="772" y="395">attention picks tokens</text>
+      <text class="t-dim" x="772" y="411">no training</text>
+      <rect class="tile c-eval" x="930" y="356" width="150" height="64" rx="6"/>
+      <text class="t-strong" x="942" y="377">Chart</text>
+      <text class="t-dim" x="942" y="395">accuracy vs. tokens</text>
+      <text class="t-dim" x="942" y="411">vs. run A, random drop</text>
+      <path class="flow w" d="M530,388 L588,388" marker-end="url(#aw)"/>
+      <path class="flow" d="M910,388 L928,388" marker-end="url(#ah)"/>
+      <path class="flow" d="M665,420 L665,436 L1005,436 L1005,422" marker-end="url(#ah)"/>
+      <rect class="group" x="20" y="470" width="1080" height="115" rx="8"/>
+      <text class="t-group" x="34" y="490">Execution order · one after the other · ≈ 8 h in total</text>
+      <rect class="tile c-check" x="34" y="505" width="136" height="64" rx="6"/>
+      <g><circle class="badge" cx="50" cy="523" r="10"/><text class="t-badge" x="50" y="527" text-anchor="middle">1</text></g>
+      <text class="t-strong" x="66" y="528">Checks</text>
+      <text class="t-dim" x="44" y="547">same output, 8 GB</text><text class="t-dim" x="44" y="563">≈ 15 min</text>
+      <path class="flow" d="M170,537 L184,537" marker-end="url(#ah)"/>
+      <rect class="tile c-frozen" x="186" y="505" width="136" height="64" rx="6"/>
+      <g><circle class="badge" cx="202" cy="523" r="10"/><text class="t-badge" x="202" y="527" text-anchor="middle">2</text></g>
+      <text class="t-strong" x="218" y="528">Cache</text>
+      <text class="t-dim" x="196" y="547">1,000 images</text><text class="t-dim" x="196" y="563">≈ 1 h</text>
+      <path class="flow" d="M322,537 L336,537" marker-end="url(#ah)"/>
+      <rect class="tile c-ctrl" x="338" y="505" width="136" height="64" rx="6"/>
+      <g><circle class="badge" cx="354" cy="523" r="10"/><text class="t-badge" x="354" y="527" text-anchor="middle">3</text></g>
+      <text class="t-strong" x="370" y="528">Control</text>
+      <text class="t-dim" x="348" y="547">no training</text><text class="t-dim" x="348" y="563">≈ 45 min</text>
+      <path class="flow" d="M474,537 L488,537" marker-end="url(#ah)"/>
+      <rect class="tile c-exp2" x="490" y="505" width="136" height="64" rx="6"/>
+      <g><circle class="badge" cx="506" cy="523" r="10"/><text class="t-badge" x="506" y="527" text-anchor="middle">4</text></g>
+      <text class="t-strong" x="522" y="528">Train experts</text>
+      <text class="t-dim" x="500" y="547">3,000 steps</text><text class="t-dim" x="500" y="563">≈ 2.5 h</text>
+      <path class="flow" d="M626,537 L640,537" marker-end="url(#ah)"/>
+      <rect class="tile c-router" x="642" y="505" width="136" height="64" rx="6"/>
+      <g><circle class="badge" cx="658" cy="523" r="10"/><text class="t-badge" x="658" y="527" text-anchor="middle">5</text></g>
+      <text class="t-strong" x="674" y="528">Train router</text>
+      <text class="t-dim" x="652" y="547">saved answers</text><text class="t-dim" x="652" y="563">≈ 1.5 h</text>
+      <path class="flow" d="M778,537 L792,537" marker-end="url(#ah)"/>
+      <rect class="tile c-eval" x="794" y="505" width="136" height="64" rx="6"/>
+      <g><circle class="badge" cx="810" cy="523" r="10"/><text class="t-badge" x="810" y="527" text-anchor="middle">6</text></g>
+      <text class="t-strong" x="826" y="528">Test MoE</text>
+      <text class="t-dim" x="804" y="547">300 POPE</text><text class="t-dim" x="804" y="563">≈ 1 h</text>
+      <path class="flow" d="M930,537 L944,537" marker-end="url(#ah)"/>
+      <rect class="tile c-eval" x="946" y="505" width="136" height="64" rx="6"/>
+      <g><circle class="badge" cx="962" cy="523" r="10"/><text class="t-badge" x="962" y="527" text-anchor="middle">7</text></g>
+      <text class="t-strong" x="978" y="528">Chart</text>
+      <text class="t-dim" x="956" y="547">page update</text><text class="t-dim" x="956" y="563">≈ 15 min</text>
+
+      <!-- Click targets -->
+      <rect class="hot" data-id="m_q" x="40" y="52" width="140" height="48" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="m_img" x="40" y="140" width="140" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="m_vis" x="200" y="140" width="140" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="m_merge" x="360" y="140" width="160" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="m_llm" x="880" y="140" width="110" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="m_ans" x="1010" y="140" width="80" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="m_router" x="560" y="126" width="270" height="46" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="m_exp" x="560" y="210" width="80" height="50" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="m_exp" x="655" y="210" width="80" height="50" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="m_exp" x="750" y="210" width="80" height="50" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="m_cache" x="40" y="356" width="150" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="m_texp" x="210" y="356" width="150" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="m_trouter" x="380" y="356" width="150" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="m_test" x="590" y="356" width="150" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="m_ctrl" x="760" y="356" width="150" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="m_chart" x="930" y="356" width="150" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="x_1" x="34" y="505" width="136" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="x_2" x="186" y="505" width="136" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="x_3" x="338" y="505" width="136" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="x_4" x="490" y="505" width="136" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="x_5" x="642" y="505" width="136" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="x_6" x="794" y="505" width="136" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="x_7" x="946" y="505" width="136" height="64" rx="6" tabindex="0" role="button"/>
+    </svg>
+  </div>
+  </div>
+
+  <div class="tab" id="tab-qa" role="tabpanel" hidden>
+  <h1>Question-Aware MoE</h1>
+  <p class="sub">Done 17 Nov, 00:35. Result: no gain. No checkpoint was better than the old MoE on held-out images, so the fallback kept the old MoE. The POPE test gave the same 86.0% again. The experts also read the question. Thus the 16 or 48 tokens collect the image parts that the question asks about. The router and the experts train together. Target: more than 90% POPE accuracy with fewer than 20 tokens. At the start, the new model is the same as the old MoE. If the new model is not better on held-out images, the old experts stay.</p>
+  <div class="canvas">
+    <svg viewBox="0 0 1120 660" role="img" aria-label="Question-aware MoE. Same model as the MoE compressor tab: frozen vision tower and merger, router, 3 experts with 16, 48 or 128 tokens, frozen LLM with LoRA. New: the question also goes to a small part that shifts the queries of each expert, so the kept tokens depend on the question. This part starts at zero. Training: about 6,000 questions from the cached images, joint training of experts, new part and router with Gumbel-softmax, then selection on held-out images with a fallback to the old experts. Evaluation: test on 300 POPE questions, reference to the old MoE and expert 48, chart.">
+      <rect class="group" x="20" y="20" width="1080" height="340" rx="8"/>
+      <text class="t-group" x="34" y="40">Model at inference</text>
+      <rect class="tile c-in" x="40" y="52" width="140" height="48" rx="6"/>
+      <text class="t-strong" x="52" y="76">Question</text>
+      <text class="t-dim" x="52" y="94">"Is there a dog?"</text>
+      <rect class="tile c-in" x="40" y="140" width="140" height="64" rx="6"/>
+      <text class="t-strong" x="52" y="164">Image</text>
+      <text class="t-dim" x="52" y="182">COCO or POPE</text>
+      <rect class="tile c-frozen" x="200" y="140" width="140" height="64" rx="6"/>
+      <text class="t-strong" x="212" y="164">Vision tower</text>
+      <text class="t-dim" x="212" y="182">frozen</text>
+      <rect class="tile c-frozen" x="360" y="140" width="160" height="64" rx="6"/>
+      <text class="t-strong" x="372" y="161">Merger</text>
+      <text class="t-dim" x="372" y="179">frozen · ≈ 269 tokens</text>
+      <text class="t-dim" x="372" y="195">+ 3 deepstack copies</text>
+      <rect class="tile c-lora" x="880" y="140" width="110" height="64" rx="6"/>
+      <text class="t-strong" x="892" y="161">LLM</text>
+      <text class="t-dim" x="892" y="179">frozen</text>
+      <text class="t-dim" x="892" y="195">+ LoRA (trained)</text>
+      <rect class="tile c-in" x="1010" y="140" width="80" height="64" rx="6"/>
+      <text class="t-strong" x="1022" y="164">Answer</text>
+      <text class="t-dim" x="1022" y="182">yes / no</text>
+      <path class="flow" d="M180,172 L198,172" marker-end="url(#ah)"/>
+      <path class="flow" d="M340,172 L358,172" marker-end="url(#ah)"/>
+      <path class="flow" d="M990,172 L1008,172" marker-end="url(#ah)"/>
+      <path class="flow" d="M180,76 L935,76 L935,138" marker-end="url(#ah)"/>
+      <path class="flow" d="M695,76 L695,124" marker-end="url(#ah)"/>
+      <circle cx="695" cy="76" r="3.5" fill="var(--muted)"/>
+      <rect class="group new" x="545" y="100" width="300" height="250" rx="8" stroke-dasharray="6 4"/>
+      <text class="t-group" x="558" y="117" style="fill: var(--accent)">Trained together</text>
+      <rect class="tile c-router" x="560" y="126" width="270" height="46" rx="6"/>
+      <text class="t-strong" x="572" y="150">Router</text>
+      <text class="t-dim" x="572" y="168">image summary + question → 1 expert</text>
+      <rect class="tile c-exp1" x="560" y="210" width="80" height="50" rx="6"/>
+      <text class="t-strong t-mid" x="600" y="231">16</text>
+      <text class="t-dim t-mid" x="600" y="248">tokens</text>
+      <path class="flow pick" d="M600,174 L600,207" marker-end="url(#ap)"/>
+      <path class="flow qa" d="M600,288 L600,263" marker-end="url(#aq)"/>
+      <rect class="tile c-exp2" x="655" y="210" width="80" height="50" rx="6"/>
+      <text class="t-strong t-mid" x="695" y="231">48</text>
+      <text class="t-dim t-mid" x="695" y="248">tokens</text>
+      <path class="flow pick" d="M695,174 L695,207" marker-end="url(#ap)"/>
+      <path class="flow qa" d="M695,288 L695,263" marker-end="url(#aq)"/>
+      <rect class="tile c-exp3" x="750" y="210" width="80" height="50" rx="6"/>
+      <text class="t-strong t-mid" x="790" y="231">128</text>
+      <text class="t-dim t-mid" x="790" y="248">tokens</text>
+      <path class="flow pick" d="M790,174 L790,207" marker-end="url(#ap)"/>
+      <path class="flow qa" d="M790,288 L790,263" marker-end="url(#aq)"/>
+      <text class="t-pick" x="705" y="196">picks 1</text>
+      <rect class="tile c-qa" x="560" y="290" width="270" height="46" rx="6"/>
+      <text class="t-strong" x="572" y="314">Question → expert queries · new</text>
+      <text class="t-dim" x="572" y="332">shifts the queries; starts at zero</text>
+      <path class="flow qa" d="M40,76 L28,76 L28,313 L558,313" marker-end="url(#aq)"/>
+      <path class="flow" d="M520,172 L532,172 L532,235 L558,235" marker-end="url(#ah)"/>
+      <path class="flow" d="M830,235 L862,235 L862,172 L878,172" marker-end="url(#ah)"/>
+      <rect class="group" x="20" y="380" width="530" height="130" rx="8"/>
+      <text class="t-group" x="34" y="400">Training · not part of the model</text>
+      <rect class="tile c-in" x="40" y="416" width="150" height="64" rx="6"/>
+      <text class="t-strong" x="52" y="437">More questions</text>
+      <text class="t-dim" x="52" y="455">≈ 6,000 from cached</text>
+      <text class="t-dim" x="52" y="471">images, hard "no"</text>
+      <rect class="tile c-qa" x="210" y="416" width="150" height="64" rx="6"/>
+      <text class="t-strong" x="222" y="437">Joint training</text>
+      <text class="t-dim" x="222" y="455">experts + new part</text>
+      <text class="t-dim" x="222" y="471">+ router (Gumbel)</text>
+      <rect class="tile c-check" x="380" y="416" width="150" height="64" rx="6"/>
+      <text class="t-strong" x="392" y="437">Select</text>
+      <text class="t-dim" x="392" y="455">best on images</text>
+      <text class="t-dim" x="392" y="471">800–999, or fallback</text>
+      <path class="flow" d="M190,448 L208,448" marker-end="url(#ah)"/>
+      <path class="flow" d="M360,448 L378,448" marker-end="url(#ah)"/>
+      <rect class="group" x="570" y="380" width="530" height="130" rx="8"/>
+      <text class="t-group" x="584" y="400">Evaluation</text>
+      <rect class="tile c-eval" x="590" y="416" width="150" height="64" rx="6"/>
+      <text class="t-strong" x="602" y="437">Test</text>
+      <text class="t-dim" x="602" y="455">300 POPE questions</text>
+      <text class="t-dim" x="602" y="471">same as before</text>
+      <rect class="tile c-ctrl" x="760" y="416" width="150" height="64" rx="6"/>
+      <text class="t-strong" x="772" y="437">Reference</text>
+      <text class="t-dim" x="772" y="455">old MoE 86.0%</text>
+      <text class="t-dim" x="772" y="471">expert 48 89.3%</text>
+      <rect class="tile c-eval" x="930" y="416" width="150" height="64" rx="6"/>
+      <text class="t-strong" x="942" y="437">Chart</text>
+      <text class="t-dim" x="942" y="455">accuracy vs. tokens</text>
+      <text class="t-dim" x="942" y="471">old and new</text>
+      <path class="flow w" d="M530,448 L588,448" marker-end="url(#aw)"/>
+      <path class="flow" d="M910,448 L928,448" marker-end="url(#ah)"/>
+      <path class="flow" d="M665,480 L665,496 L1005,496 L1005,482" marker-end="url(#ah)"/>
+      <rect class="group" x="20" y="530" width="1080" height="115" rx="8"/>
+      <text class="t-group" x="34" y="550">Execution order · one after the other · ≈ 5 h in total</text>
+      <rect class="tile c-check" x="34" y="565" width="160" height="64" rx="6"/>
+      <g><circle class="badge" cx="50" cy="583" r="10"/><text class="t-badge" x="50" y="587" text-anchor="middle">1</text></g>
+      <text class="t-strong" x="66" y="588">Checks</text>
+      <text class="t-dim" x="44" y="607">same output at start</text><text class="t-dim" x="44" y="623">≈ 15 min</text>
+      <path class="flow" d="M194,597 L210,597" marker-end="url(#ah)"/>
+      <rect class="tile c-in" x="212" y="565" width="160" height="64" rx="6"/>
+      <g><circle class="badge" cx="228" cy="583" r="10"/><text class="t-badge" x="228" y="587" text-anchor="middle">2</text></g>
+      <text class="t-strong" x="244" y="588">More questions</text>
+      <text class="t-dim" x="222" y="607">≈ 6,000 questions</text><text class="t-dim" x="222" y="623">≈ 15 min</text>
+      <path class="flow" d="M372,597 L388,597" marker-end="url(#ah)"/>
+      <rect class="tile c-qa" x="390" y="565" width="160" height="64" rx="6"/>
+      <g><circle class="badge" cx="406" cy="583" r="10"/><text class="t-badge" x="406" y="587" text-anchor="middle">3</text></g>
+      <text class="t-strong" x="422" y="588">Joint training</text>
+      <text class="t-dim" x="400" y="607">3,000 steps</text><text class="t-dim" x="400" y="623">≈ 3 h</text>
+      <path class="flow" d="M550,597 L566,597" marker-end="url(#ah)"/>
+      <rect class="tile c-check" x="568" y="565" width="160" height="64" rx="6"/>
+      <g><circle class="badge" cx="584" cy="583" r="10"/><text class="t-badge" x="584" y="587" text-anchor="middle">4</text></g>
+      <text class="t-strong" x="600" y="588">Select</text>
+      <text class="t-dim" x="578" y="607">checkpoints, fallback</text><text class="t-dim" x="578" y="623">≈ 30 min</text>
+      <path class="flow" d="M728,597 L744,597" marker-end="url(#ah)"/>
+      <rect class="tile c-eval" x="746" y="565" width="160" height="64" rx="6"/>
+      <g><circle class="badge" cx="762" cy="583" r="10"/><text class="t-badge" x="762" y="587" text-anchor="middle">5</text></g>
+      <text class="t-strong" x="778" y="588">Test</text>
+      <text class="t-dim" x="756" y="607">300 POPE</text><text class="t-dim" x="756" y="623">≈ 50 min</text>
+      <path class="flow" d="M906,597 L922,597" marker-end="url(#ah)"/>
+      <rect class="tile c-eval" x="924" y="565" width="160" height="64" rx="6"/>
+      <g><circle class="badge" cx="940" cy="583" r="10"/><text class="t-badge" x="940" y="587" text-anchor="middle">6</text></g>
+      <text class="t-strong" x="956" y="588">Chart</text>
+      <text class="t-dim" x="934" y="607">page update</text><text class="t-dim" x="934" y="623">≈ 15 min</text>
+
+      <!-- Click targets -->
+      <rect class="hot" data-id="q_q" x="40" y="52" width="140" height="48" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="q_img" x="40" y="140" width="140" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="q_vis" x="200" y="140" width="140" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="q_merge" x="360" y="140" width="160" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="q_llm" x="880" y="140" width="110" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="q_ans" x="1010" y="140" width="80" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="q_router" x="560" y="126" width="270" height="46" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="q_exp" x="560" y="210" width="80" height="50" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="q_exp" x="655" y="210" width="80" height="50" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="q_exp" x="750" y="210" width="80" height="50" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="q_qa" x="560" y="290" width="270" height="46" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="q_more" x="40" y="416" width="150" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="q_joint" x="210" y="416" width="150" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="q_select" x="380" y="416" width="150" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="q_test" x="590" y="416" width="150" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="q_ref" x="760" y="416" width="150" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="q_chart" x="930" y="416" width="150" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="qx_1" x="34" y="565" width="160" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="qx_2" x="212" y="565" width="160" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="qx_3" x="390" y="565" width="160" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="qx_4" x="568" y="565" width="160" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="qx_5" x="746" y="565" width="160" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="qx_6" x="924" y="565" width="160" height="64" rx="6" tabindex="0" role="button"/>
+    </svg>
+  </div>
+  </div>
+
+  <div class="tab" id="tab-bench" role="tabpanel" hidden>
+  <h1>Beyond POPE</h1>
+  <p class="sub">Done on 17 Nov, 19:21. Result: on GQA, expert 48 is close to all tokens. On TextVQA, all compression fails. Does expert 48 also work on real tasks? GQA asks about objects and their relations. TextVQA asks the model to read text in the image. This is the hardest case for compression. No new training: the experts are the same as in the MoE tab.</p>
+  <div class="canvas">
+    <svg viewBox="0 0 1120 500" role="img" aria-label="Beyond POPE. 300 GQA and 300 TextVQA questions go through the frozen vision tower and merger. Five methods use the same image: all tokens, random 48, attention control 48, trained expert 48 and expert 128. The frozen LLM answers; the score is exact match for GQA and VQA accuracy for TextVQA. Steps: checks, original model, experts, chart, and mixed training only if TextVQA fails.">
+      <rect class="group" x="20" y="20" width="1080" height="330" rx="8"/>
+      <text class="t-group" x="34" y="40">Test on new tasks · no new training</text>
+      <rect class="tile c-in" x="40" y="60" width="170" height="64" rx="6"/>
+      <text class="t-strong" x="52" y="81">GQA</text>
+      <text class="t-dim" x="52" y="99">300 questions</text>
+      <text class="t-dim" x="52" y="115">objects and relations</text>
+      <rect class="tile c-in" x="40" y="150" width="170" height="64" rx="6"/>
+      <text class="t-strong" x="52" y="171">TextVQA</text>
+      <text class="t-dim" x="52" y="189">300 questions</text>
+      <text class="t-dim" x="52" y="205">read text in the image</text>
+      <rect class="tile c-frozen" x="250" y="105" width="170" height="64" rx="6"/>
+      <text class="t-strong" x="262" y="126">Vision tower + merger</text>
+      <text class="t-dim" x="262" y="144">frozen</text>
+      <text class="t-dim" x="262" y="160">≈ 260 / ≈ 720 tokens</text>
+      <path class="flow" d="M210,92 L230,92 L230,137 L248,137" marker-end="url(#ah)"/>
+      <path class="flow" d="M210,182 L230,182 L230,137" marker-end="url(#ah)"/>
+      <rect class="group new" x="450" y="50" width="380" height="290" rx="8" stroke-dasharray="6 4"/>
+      <text class="t-group" x="463" y="67" style="fill: var(--accent)">5 methods · same image</text>
+      <rect class="tile c-frozen" x="470" y="78" width="340" height="44" rx="6"/>
+      <text class="t-strong" x="482" y="105">All tokens</text>
+      <text class="t-dim" x="620" y="105">original model</text>
+      <rect class="tile c-frozen" x="470" y="130" width="340" height="44" rx="6"/>
+      <text class="t-strong" x="482" y="157">Random 48</text>
+      <text class="t-dim" x="620" y="157">original model</text>
+      <rect class="tile c-ctrl" x="470" y="182" width="340" height="44" rx="6"/>
+      <text class="t-strong" x="482" y="209">Control 48</text>
+      <text class="t-dim" x="620" y="209">attention, no training</text>
+      <rect class="tile c-exp2" x="470" y="234" width="340" height="44" rx="6"/>
+      <text class="t-strong" x="482" y="261">Expert 48</text>
+      <text class="t-dim" x="620" y="261">trained on POPE-like data</text>
+      <rect class="tile c-exp3" x="470" y="286" width="340" height="44" rx="6"/>
+      <text class="t-strong" x="482" y="313">Expert 128</text>
+      <text class="t-dim" x="620" y="313">trained on POPE-like data</text>
+      <path class="flow" d="M420,137 L440,137 L440,170 L468,170" marker-end="url(#ah)"/>
+      <rect class="tile c-lora" x="870" y="105" width="110" height="64" rx="6"/>
+      <text class="t-strong" x="882" y="126">LLM</text>
+      <text class="t-dim" x="882" y="144">frozen</text>
+      <text class="t-dim" x="882" y="160">+ LoRA (experts)</text>
+      <path class="flow" d="M830,170 L850,170 L850,137 L868,137" marker-end="url(#ah)"/>
+      <rect class="tile c-eval" x="1000" y="105" width="84" height="64" rx="6"/>
+      <text class="t-strong" x="1012" y="126">Score</text>
+      <text class="t-dim" x="1012" y="144">exact /</text>
+      <text class="t-dim" x="1012" y="160">VQA acc.</text>
+      <path class="flow" d="M980,137 L998,137" marker-end="url(#ah)"/>
+      <rect class="group" x="20" y="370" width="1080" height="115" rx="8"/>
+      <text class="t-group" x="34" y="390">Execution order · one after the other · 6.9 h in total</text>
+      <rect class="tile c-check" x="34" y="405" width="190" height="64" rx="6"/>
+      <g><circle class="badge" cx="50" cy="423" r="10"/><text class="t-badge" x="50" y="427" text-anchor="middle">1</text></g>
+      <text class="t-strong" x="66" y="428">Checks</text>
+      <text class="t-dim" x="44" y="447">2 questions per set</text><text class="t-dim" x="44" y="463">≈ 10 min</text>
+      <path class="flow" d="M224,437 L244,437" marker-end="url(#ah)"/>
+      <rect class="tile c-frozen" x="246" y="405" width="190" height="64" rx="6"/>
+      <g><circle class="badge" cx="262" cy="423" r="10"/><text class="t-badge" x="262" y="427" text-anchor="middle">2</text></g>
+      <text class="t-strong" x="278" y="428">Original model</text>
+      <text class="t-dim" x="256" y="447">all, random, control</text><text class="t-dim" x="256" y="463">≈ 8 h</text>
+      <path class="flow" d="M436,437 L456,437" marker-end="url(#ah)"/>
+      <rect class="tile c-exp2" x="458" y="405" width="190" height="64" rx="6"/>
+      <g><circle class="badge" cx="474" cy="423" r="10"/><text class="t-badge" x="474" y="427" text-anchor="middle">3</text></g>
+      <text class="t-strong" x="490" y="428">Experts</text>
+      <text class="t-dim" x="468" y="447">expert 48 and 128</text><text class="t-dim" x="468" y="463">≈ 2.5 h</text>
+      <path class="flow" d="M648,437 L668,437" marker-end="url(#ah)"/>
+      <rect class="tile c-eval" x="670" y="405" width="190" height="64" rx="6"/>
+      <g><circle class="badge" cx="686" cy="423" r="10"/><text class="t-badge" x="686" y="427" text-anchor="middle">4</text></g>
+      <text class="t-strong" x="702" y="428">Chart</text>
+      <text class="t-dim" x="680" y="447">page update</text><text class="t-dim" x="680" y="463">≈ 15 min</text>
+      <path class="flow w" d="M860,437 L880,437" marker-end="url(#aw)"/>
+      <rect class="tile c-lora" x="882" y="405" width="190" height="64" rx="6"/>
+      <g><circle class="badge" cx="898" cy="423" r="10"/><text class="t-badge" x="898" y="427" text-anchor="middle">5</text></g>
+      <text class="t-strong" x="914" y="428">Mixed training</text>
+      <text class="t-dim" x="892" y="447">only if TextVQA fails</text><text class="t-dim" x="892" y="463">next night</text>
+
+      <!-- Click targets -->
+      <rect class="hot" data-id="b_gqa" x="40" y="60" width="170" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="b_tvqa" x="40" y="150" width="170" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="b_vis" x="250" y="105" width="170" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="b_all" x="470" y="78" width="340" height="44" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="b_rand" x="470" y="130" width="340" height="44" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="b_ctrl" x="470" y="182" width="340" height="44" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="b_e48" x="470" y="234" width="340" height="44" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="b_e128" x="470" y="286" width="340" height="44" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="b_llm" x="870" y="105" width="110" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="b_score" x="1000" y="105" width="84" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="bx_1" x="34" y="405" width="190" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="bx_2" x="246" y="405" width="190" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="bx_3" x="458" y="405" width="190" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="bx_4" x="670" y="405" width="190" height="64" rx="6" tabindex="0" role="button"/>
+      <rect class="hot" data-id="bx_5" x="882" y="405" width="190" height="64" rx="6" tabindex="0" role="button"/>
+    </svg>
+  </div>
+  </div>
+
+  <button class="open-help" id="open-help" type="button">How to read the boxes and the result</button>
+  <section class="help" id="help" hidden aria-label="How to read the boxes and the result">
+    <div class="bar" id="help-bar"><span>How to read · drag to move</span><button type="button" id="help-close" aria-label="Close">×</button></div>
+    <div class="body">
+      <details open>
+        <summary>1. The boxes</summary>
+        <ul>
+        <li>The boxes show the steps from left to right: data, training, outputs, evaluation.</li>
+        <li>A green check mark tells you that the step is finished. Click a box to see its result below the diagram.</li>
+        <li>An orange box is a step where image tokens are removed.</li>
+      </ul>
+      </details>
+      <details>
+        <summary>2. The three runs</summary>
+        <ul>
+        <li><b>A</b>: the original model. No training.</li>
+        <li><b>B</b>: trained with all image tokens. This is the control.</li>
+        <li><b>C</b>: trained with 0–75% of the image tokens removed at random.</li>
+        <li>All three runs answer the same 300 POPE questions, with 0, 25, 50, 75 and 100% of the tokens removed.</li>
+      </ul>
+      </details>
+      <details>
+        <summary>3. The question</summary>
+        <p>Run A loses 4 points at 75% removed. There are two possible causes:</p>
+      <ul>
+        <li><b>New input form</b>: the model never saw input with tokens removed. If this is the cause, C fixes the loss.</li>
+        <li><b>Lost image data</b>: the removed tokens hold data that the model needs. If this is the cause, training cannot fix the loss.</li>
+      </ul>
+      </details>
+      <details>
+        <summary>4. The answer</summary>
+        <ul>
+        <li>C still loses 3 points (90.0% → 87.0%). A loses 4 (91.3% → 87.3%). C does not fix the loss.</li>
+        <li><b>Result: the loss comes from lost image data.</b></li>
+      </ul>
+      </details>
+      <details>
+        <summary>5. Other results</summary>
+        <ul>
+        <li>B is worse at 75% removed (83.3%). Normal training makes the model less tolerant of removed tokens.</li>
+        <li>C stays tolerant (87.0%). If you train, train with tokens removed.</li>
+        <li>Up to 50% removed, all runs stay near 90%. Half of the image tokens can go with almost no loss.</li>
+        <li>At 100% removed, all runs say "no" to all questions (≈ 51%, the share of No answers).</li>
+      </ul>
+      </details>
+      <details>
+        <summary>6. The p-values (box "Compare")</summary>
+        <ul>
+        <li>p below 0.05: a real difference. p above 0.05: the difference can be chance.</li>
+        <li>Real differences: B worse than A at 75% (p = 0.002); C better than B at 50% (p = 0.03) and 75% (p = 0.001).</li>
+      </ul>
+      </details>
+      <details>
+        <summary>7. Limits</summary>
+        <ul>
+        <li>300 questions, 1,000 training steps, one seed. A gain of less than about 3 points cannot be seen.</li>
+      </ul>
+      </details>
+    </div>
+  </section>
+  <script>
+  (() => {
+    const w = document.getElementById('help'), bar = document.getElementById('help-bar');
+    document.getElementById('open-help').onclick = () => { w.hidden = false; };
+    document.getElementById('help-close').onclick = () => { w.hidden = true; };
+    let dx = 0, dy = 0, on = false;
+    bar.addEventListener('pointerdown', e => {
+      if (e.target.closest('button')) return;
+      const r = w.getBoundingClientRect();
+      dx = e.clientX - r.left; dy = e.clientY - r.top; on = true;
+      bar.setPointerCapture(e.pointerId);
+    });
+    bar.addEventListener('pointermove', e => {
+      if (!on) return;
+      const x = Math.min(Math.max(0, e.clientX - dx), innerWidth - w.offsetWidth);
+      const y = Math.min(Math.max(0, e.clientY - dy), innerHeight - 40);
+      Object.assign(w.style, { left: x + 'px', top: y + 'px', right: 'auto' });
+    });
+    bar.addEventListener('pointerup', () => { on = false; });
+  })();
+  </script>
+
+  <p class="hint">Click a box to see its result. Close with ×, Esc or a click outside.</p>
+  <section class="detail" id="detail" role="dialog" aria-live="polite" hidden></section>
+
+  <div class="legend" id="legend-ft">
+    <span><svg class="sw-arrow" width="34" height="12" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="25" y2="6" style="stroke: var(--muted)" stroke-width="1.6"/><path d="M24,1 L33,6 L24,11 z" style="fill: var(--muted)"/></svg>Data flow</span>
+    <span><svg class="sw-arrow" width="34" height="12" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="25" y2="6" style="stroke: var(--accent)" stroke-width="1.6" stroke-dasharray="5 4" stroke-linecap="round"/><path d="M24,1 L33,6 L24,11 z" style="fill: var(--accent)"/></svg>Trained LoRA weights</span>
+    <span><i class="bx drop"></i>Token drop</span>
+    <span><i class="bx done"></i>Already done</span>
+  </div>
+  <div class="legend" id="legend-moe" hidden>
+    <span><i class="bx c-in"></i>Input / output</span>
+    <span><i class="bx c-frozen"></i>Frozen, not changed</span>
+    <span><i class="bx c-router"></i>Router (new)</span>
+    <span><i class="bx c-exp"></i>Experts 16 / 48 / 128 (new)</span>
+    <span><i class="bx c-lora"></i>LoRA on the LLM</span>
+    <span><i class="bx c-ctrl"></i>Control</span>
+    <span><i class="bx c-eval"></i>Test and chart</span>
+    <span><i class="bx c-check"></i>Checks</span>
+    <span><svg class="sw-arrow" width="34" height="12" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="25" y2="6" style="stroke: var(--muted)" stroke-width="1.6"/><path d="M24,1 L33,6 L24,11 z" style="fill: var(--muted)"/></svg>Data flow</span>
+    <span><svg class="sw-arrow" width="34" height="12" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="25" y2="6" style="stroke: var(--c-router)" stroke-width="2.5" stroke-dasharray="1.5 4" stroke-linecap="round"/><path d="M24,1 L33,6 L24,11 z" style="fill: var(--c-router)"/></svg>Router picks one expert</span>
+    <span><svg class="sw-arrow" width="34" height="12" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="25" y2="6" style="stroke: var(--accent)" stroke-width="1.6" stroke-dasharray="5 4" stroke-linecap="round"/><path d="M24,1 L33,6 L24,11 z" style="fill: var(--accent)"/></svg>Trained weights</span>
+    <span><i class="num">1</i>Order of steps</span>
+  </div>
+
+  <div class="legend" id="legend-qa" hidden>
+    <span><i class="bx c-qa"></i>Question → expert queries (new)</span>
+    <span><svg class="sw-arrow" width="34" height="12" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="25" y2="6" style="stroke: var(--c-qa)" stroke-width="2"/><path d="M24,1 L33,6 L24,11 z" style="fill: var(--c-qa)"/></svg>Question to the experts (new)</span>
+    <span><i class="bx c-in"></i>Input / output, data</span>
+    <span><i class="bx c-frozen"></i>Frozen, not changed</span>
+    <span><i class="bx c-router"></i>Router</span>
+    <span><i class="bx c-exp"></i>Experts 16 / 48 / 128</span>
+    <span><i class="bx c-lora"></i>LoRA on the LLM</span>
+    <span><i class="bx c-ctrl"></i>Reference (old results)</span>
+    <span><i class="bx c-eval"></i>Test and chart</span>
+    <span><i class="bx c-check"></i>Checks and selection</span>
+    <span><svg class="sw-arrow" width="34" height="12" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="25" y2="6" style="stroke: var(--c-router)" stroke-width="2.5" stroke-dasharray="1.5 4" stroke-linecap="round"/><path d="M24,1 L33,6 L24,11 z" style="fill: var(--c-router)"/></svg>Router picks one expert</span>
+    <span><i class="num">1</i>Order of steps</span>
+  </div>
+  <div class="legend" id="legend-bench" hidden>
+    <span><i class="bx c-in"></i>New test data</span>
+    <span><i class="bx c-frozen"></i>Original model, no change</span>
+    <span><i class="bx c-ctrl"></i>Control (attention)</span>
+    <span><i class="bx c-exp"></i>Trained experts</span>
+    <span><i class="bx c-lora"></i>LoRA on the LLM</span>
+    <span><i class="bx c-eval"></i>Score and chart</span>
+    <span><i class="bx c-check"></i>Checks</span>
+    <span><i class="num">1</i>Order of steps</span>
+  </div>
+  <section class="refs">
+    <h2>References</h2>
+    <ol>
+      <li>Lan, Sun, Walter and Zhou. <a href="https://arxiv.org/abs/2605.22903">Seeing without Looking: Do Vision-Language Benchmarks Really Test Vision?</a> arXiv 2605.22903. Run A reproduces its token-drop test (App. A.4).</li>
+      <li>Li, Du, Zhou, Wang, Zhao and Wen. <a href="https://arxiv.org/abs/2305.10355">Evaluating Object Hallucination in Large Vision-Language Models</a> (POPE). EMNLP 2023. Test questions, <a href="https://github.com/RUCAIBox/POPE">MIT License</a>.</li>
+      <li>Lin et al. <a href="https://arxiv.org/abs/1405.0312">Microsoft COCO: Common Objects in Context</a>. ECCV 2014. Training images and labels (annotations <a href="https://cocodataset.org/#termsofuse">CC BY 4.0</a>; images keep their Flickr licenses and are not shared).</li>
+      <li>Qwen team. <a href="https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct">Qwen3-VL-4B-Instruct</a>, 4-bit MLX copy <a href="https://huggingface.co/mlx-community/Qwen3-VL-4B-Instruct-4bit">mlx-community/Qwen3-VL-4B-Instruct-4bit</a>. Apache 2.0.</li>
+      <li><a href="https://github.com/ml-explore/mlx">MLX</a> (MIT) and <a href="https://github.com/Blaizzy/mlx-vlm">mlx-vlm</a> (MIT). LoRA: Hu et al., <a href="https://arxiv.org/abs/2106.09685">LoRA: Low-Rank Adaptation of Large Language Models</a>, ICLR 2022.</li>
+        <li>Hudson and Manning. <a href="https://arxiv.org/abs/1902.09506">GQA: A New Dataset for Real-World Visual Reasoning and Compositional Question Answering</a>. CVPR 2019. Test questions (<a href="https://cs.stanford.edu/people/dorarad/gqa/about.html">CC BY 4.0</a>).</li>
+      <li>Singh et al. <a href="https://arxiv.org/abs/1904.08920">Towards VQA Models That Can Read</a> (TextVQA). CVPR 2019. Test questions (<a href="https://textvqa.org/dataset/">CC BY 4.0</a>; images from Open Images, CC BY 2.0, not shared).</li>
+    </ol>
+    <p class="note">All numbers, diagrams and charts on this page are from our own runs. No figure or text from the sources is copied.</p>
+  </section>
+
+</main>
+
+<script>
+// Results per box. "plan" boxes get their numbers after the run.
+const T = (head, rows) => `<div class="wrap"><table><thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+const L = items => `<ul>${items.map(i => `<li>${i}</li>`).join('')}</ul>`;
+const BOX = {
+  coco: { t: 'COCO annotations', s: 'done', h: '<p>Downloaded on 14 Nov, 20:55: <code>instances_train2014.json</code> from the 241 MB archive, into <code>data/</code>.</p>' + L(['License: CC BY 4.0 (annotations)', 'Never committed to git']) },
+  builder: { t: 'Question builder', s: 'done', h: '<p><code>data_coco.py</code> made POPE-style questions: "Is there a {object} in the image?"</p>' + L(['Yes: an object that covers at least 1% of the image', 'No: an absent object, half random, half often seen together with the image objects', '20 questions printed for a spot check; 2 risky "No person" questions checked by eye: both correct']) },
+  trainset: { t: 'Training set', s: 'done', h: L(['2,000 questions: 1,000 Yes, 1,000 No', '1,000 COCO train2014 images (one Yes and one No question each)', 'No image is in the POPE test set (POPE uses val2014)', 'Each run uses the first 1,000 questions in a fixed random order']) },
+  pope: { t: 'POPE test set', s: 'done', h: L(['300 questions, random split of lmms-lab/POPE, seed 0', '147 Yes, 153 No', '238 images from COCO val2014', 'Mean 269 image tokens per image']) },
+  model: { t: 'Qwen3-VL-4B', s: 'done', h: L(['mlx-community/Qwen3-VL-4B-Instruct-4bit (Apache 2.0)', 'MLX 0.32.4, mlx-vlm 0.7.12 on an 8 GB Apple M1', 'Check: at 0% drop the first-token logits equal the original model (difference 0)']) },
+  drop: { t: 'Token drop', s: 'done', h: '<p>Already built for inference (<code>token_drop.py</code>). The same tokens are removed from four places:</p>' + L(['input embeddings', 'the 3 deepstack copies', 'the M-RoPE position ids (kept tokens keep their positions)', 'the image-position mask']) + '<p>In training, the drop happens inside each step: run C removes a new random 0–75% of the tokens for each question.</p>' },
+  step: { t: 'Training step', s: 'done', h: '<p>Memory test passed on 14 Nov, 21:04.</p>' + T(['Measure', 'Value'], [['Peak memory', '5.0–6.0 GB of 8 GB'], ['Trainable numbers', '2,949,120 (LoRA rank 8 on q_proj, v_proj, 36 layers)'], ['Time per step', '≈ 17 s'], ['Steps per run', '1,000 (cut from 2,000 to fit the time)'], ['Loss', 'cross-entropy on the first answer token: " yes" or " no"']]) + '<p>A first try trained toward "Yes"/"No" with a capital letter. The model answers " yes"/" no", so the start loss was 17.5. Fixed before the real runs.</p>' },
+  runB: { t: 'Run B · control', s: 'done', h: '<p>Finished on 15 Nov, 00:43. LoRA fine-tune with all image tokens kept.</p>' + T(['Measure', 'Value'], [['Steps', '1,000'], ['Run time', '3.6 h (≈ 13 s per step)'], ['Loss, first 25 steps', '1.27'], ['Loss, last 25 steps', '0.06'], ['Peak memory', '6.0 GB']]) },
+  runC: { t: 'Run C · drop-aware', s: 'done', h: '<p>Finished on 15 Nov, 03:02. LoRA fine-tune with 0–75% of the image tokens removed at random in each step.</p>' + T(['Measure', 'Value'], [['Steps', '1,000'], ['Run time', '2.3 h (≈ 8 s per step; fewer tokens make it faster than B)'], ['Loss, first 25 steps', '1.18'], ['Loss, last 25 steps', '0.08'], ['Peak memory', '6.0 GB']]) },
+  lora: { t: 'LoRA weights', s: 'done', h: '<p>Two weight files, 11.8 MB each: results/ft/B/adapters.safetensors and results/ft/C/adapters.safetensors. Kept local.</p>' },
+  infer: { t: 'Inference: B and C', s: 'done', h: '<p>Finished on 15 Nov, 06:24 (B 1.7 h, C 1.7 h). Accuracy on the same 300 POPE questions:</p>' + T(['Removed', 'Run A', 'Run B', 'Run C'], [['0%', '91.3%', '90.3%', '90.0%'], ['25%', '90.0%', '89.0%', '89.3%'], ['50%', '90.7%', '88.7%', '90.7%'], ['75%', '87.3%', '83.3%', '87.0%'], ['100%', '50.7%', '51.0%', '51.0%']]) + '<p>Yes-rate at 75% removed: A 38%, B 34%, C 38% (true rate: 50%).</p>' },
+  compare: { t: 'Compare', s: 'done', h: '<p>Exact McNemar test, paired on the same 300 questions. p below 0.05 = a real difference.</p>' + T(['Removed', 'B vs A', 'C vs A', 'C vs B'], [['0%', '0.51', '0.22', '1.00'], ['25%', '0.51', '0.69', '1.00'], ['50%', '0.07', '1.00', '<b>0.03</b>'], ['75%', '<b>0.002</b> (B worse)', '1.00', '<b>0.001</b> (C better)'], ['100%', '1.00', '1.00', '1.00']]) },
+  runA: { t: 'Run A · baseline', s: 'done', h: '<p>Inference only, no training. 300 POPE questions.</p>' + T(['Removed', 'Tokens kept', 'Accuracy', 'Answer is Yes', 'Says Yes'], [['0%', '269.3', '91.3%', '85.7%', '43.7%'], ['25%', '202.0', '90.0%', '83.0%', '42.3%'], ['50%', '134.7', '90.7%', '84.4%', '43.0%'], ['75%', '67.3', '87.3%', '76.2%', '38.3%'], ['100%', '0', '50.7%', '0.7%', '1.0%']]) + L(['0% vs. 75%: McNemar p = 0.012', 'Deepstack off: 90.3% (no significant change)', 'Deepstack only: 75.3%']) },
+  writeup: { t: 'Chart + write-up', s: 'done', h: '<svg viewBox="0 0 400 200" width="100%" role="img" aria-label="Accuracy of runs A, B and C at 0 to 75 percent tokens removed" style="font:11px system-ui;color:inherit"><g stroke="currentColor" stroke-opacity=".15"><line x1="40" x2="390" y1="20" y2="20"/><line x1="40" x2="390" y1="76" y2="76"/><line x1="40" x2="390" y1="132" y2="132"/></g><g fill="currentColor" fill-opacity=".6"><text x="34" y="24" text-anchor="end">92%</text><text x="34" y="80" text-anchor="end">88%</text><text x="34" y="136" text-anchor="end">84%</text><text x="60" y="162" text-anchor="middle">0%</text><text x="160" y="162" text-anchor="middle">25%</text><text x="260" y="162" text-anchor="middle">50%</text><text x="360" y="162" text-anchor="middle">75% removed</text></g><g fill="none" stroke-width="2"><polyline stroke="#8a8f98" stroke-dasharray="4 3" points="60,29.8 160,48 260,38.2 360,85.8"/><polyline stroke="#e8853a" points="60,43.8 160,62 260,66.2 360,141.8"/><polyline stroke="#2f7de1" points="60,48 160,57.8 260,38.2 360,90"/></g><g fill="currentColor"><text x="60" y="188"><tspan fill="#8a8f98">— —</tspan> A: no fine-tune</text><text x="170" y="188"><tspan fill="#e8853a">—</tspan> B: tune, no drop</text><text x="285" y="188"><tspan fill="#2f7de1">—</tspan> C: tune with drop</text></g></svg>' + '<p><b>Answer: the 75% loss is mostly lost image data, not a distribution shift.</b> Run C did not close the gap: 90.0% → 87.0%, the same as run A (91.3% → 87.3%).</p>' + L(['Plain fine-tuning (B) makes the model weaker with fewer tokens: 83.3% at 75%, p = 0.002 vs A.', 'Training with drop (C) removes this harm: 87.0% at 75%, p = 0.001 vs B.', 'Limit: 300 questions, 1,000 steps, one seed. A gain smaller than about 3 points cannot be seen.']) },
+  m_q: { t: 'Question', s: 'done', h: '<p>The POPE question, for example "Is there a dog in the image?". It goes to the router and to the LLM.</p>' },
+  m_img: { t: 'Image', s: 'done', h: L(['Training: the same 1,000 COCO train2014 images as runs B and C', 'Test: the same 300 POPE questions (val2014) as runs A, B and C']) },
+  m_vis: { t: 'Vision tower', s: 'done', h: '<p>Not changed and frozen. In training, its output is computed once and saved (see "Cache features").</p>' },
+  m_merge: { t: 'Merger', s: 'done', h: '<p>Not changed and frozen. It gives ≈ 269 image tokens, plus 3 deepstack copies from vision layers 6, 12 and 18. Today, the token drop removes tokens here. The MoE compresses them instead.</p>' },
+  m_router: { t: 'Router · new', s: 'done', h: L(['Input: a mean of the image tokens plus the question embedding', 'Output: one of 3 experts (16, 48 or 128 tokens)', 'Trained with: wrong answer = high loss, plus a cost per token', 'Goal: easy questions get 16 tokens, hard ones (small objects, busy images) get 128']) },
+  m_exp: { t: 'Experts · new', s: 'done', h: '<p>Three small compressors. Each one has k learned queries (16, 48 or 128). Each new token is a weighted mean of the real image tokens, so the LLM sees tokens of the usual kind. No token is removed.</p>' + T(['Expert', 'Tokens', 'Fewer than ≈ 269'], [['A', '16', '94%'], ['B', '48', '82%'], ['C', '128', '52%']]) + L(['Weights = a spatial term (Gaussian around each grid cell) + a content term (query · key).', 'At the start the content term is 0, so each expert is plain area pooling.', 'The same weights pool the 3 deepstack copies, so all paths stay aligned.', '≈ 0.7 M trained numbers per expert.']) },
+  m_llm: { t: 'LLM', s: 'done', h: '<p>Weights not changed and frozen. Small LoRA layers (rank 8, as in run C) help the LLM read the compressed tokens. Without the new parts, the model is exactly the original.</p>' },
+  m_ans: { t: 'Answer', s: 'done', h: '<p>Yes or no. The training loss is on the first answer token (" yes" / " no"), as in runs B and C.</p>' },
+  m_cache: { t: 'Cache features', s: 'done', h: '<p>A speed-up only. It does not change the architecture or the result, because the vision tower is frozen.</p>' + L(['Run the frozen vision tower and merger once for the 1,000 training images', 'Save the tokens and deepstack copies to disk (≈ 6 GB, git-ignored)', 'Training then skips the vision tower: ≈ 3 s per step instead of 8–13 s']) },
+  m_texp: { t: 'Train experts · new', s: 'done', h: '<p>Training method only. The trained experts are the same parts as in the model above.</p>' + L(['One run for all 3 experts: each step picks one expert at random', '≈ 3,000 steps (≈ 1,000 per expert), Adam, plus LoRA on the LLM', 'First: a memory test, as for runs B and C']) },
+  m_trouter: { t: 'Train router · new', s: 'done', h: '<p>Training method only. The router could also be trained together with the experts; that is slower but gives the same architecture.</p>' + L(['Run each trained expert on each training question and save its answer', 'The router learns: the cheapest expert that still answers correctly', 'Fast: no new LLM training in this step']) },
+  m_ctrl: { t: 'Control', s: 'done', h: '<p>No training. Keep 16, 48 or 128 tokens, picked by the attention of the existing model. This answers the question: "Does the trained compressor beat simply picking tokens well?"</p>' },
+  m_test: { t: 'Test MoE', s: 'done', h: L(['The same 300 POPE questions as runs A, B and C', 'One pass per question: the router picks the expert', 'Saved per question: expert, number of tokens, answer, time']) },
+  m_chart: { t: 'Chart', s: 'done', h: '<p>Accuracy against the mean number of tokens, with these points:</p>' + L(['MoE (router)', 'Each expert alone (16, 48, 128)', 'Control (attention, no training)', 'Random drop and run A (from the fine-tuning tab)']) + '<p>Success: more than 90% with a mean of fewer than 50 tokens.</p>' },
+  x_1: { t: '1 · Checks', s: 'done', h: '<p>Passed on 16 Nov, 07:49.</p>' + T(['Check', 'Result'], [['Inputs of the new path = original (ids, embeddings, positions)', 'same, 5 of 5'], ['First-token logit difference, LoRA at zero', '0'], ['Tokens from each expert (main path + 3 deepstack)', '16 / 48 / 128 on all 4'], ['Peak memory, 3 training steps (128 tokens)', '4.82 GB'], ['Trainable numbers in the 3 experts', '2.0 M']]) + '<p>A smoke test of steps 2–7 on 4 images also passed.</p>' },
+  x_2: { t: '2 · Cache', s: 'done', h: '<p><b>Done 16 Nov, 08:12 (23 min). 1,000 images cached.</b></p>' + L(['Do these steps for each of the 1,000 training images.', 'Send the image through the vision tower and the merger one time.', 'Save the ≈ 269 image tokens and the 3 deepstack copies. Use 16-bit numbers.', 'Save the grid size of the image. The positions need it.', 'Write one file for each image in data/cache/. Git ignores this folder.']) + '<p>The vision tower does not use the question. Thus one pass for each image is sufficient. Size: ≈ 6 GB. Time: ≈ 1 h.</p>' },
+  x_3: { t: '3 · Control', s: 'done', h: '<p><b>Done 16 Nov, 10:20 (2 h 08 min).</b></p>' + T(['Tokens kept', 'POPE accuracy (300)'], [['16', '64.0%'], ['48', '82.7%'], ['128', '90.0%'], ['All ≈ 269 (run A, 0% removed)', '91.3%']]) + '<p>At 75% removed (≈ 67 tokens), random drop gave 87.3%. Thus attention top-48 is not better than random drop here.</p>' + L(['Do these steps for each of the 300 POPE questions.', 'Send all image tokens and the question into the LLM. Stop after layer 2.', 'Read the attention from the last question token to each image token.', 'For 16, 48 and 128: keep the tokens with the highest attention.', 'Remove the same tokens from the 3 deepstack copies. Kept tokens keep their positions.', 'Get the answer. Record the answer and the number of tokens.']) + '<p>No training. Use the original model without LoRA. 900 answers. Time: ≈ 45 min.</p>' },
+  x_4: { t: '4 · Train experts', s: 'done', h: '<p><b>Done 16 Nov, 12:41 (2 h 21 min, 2.8 s per step, peak 4.36 GB).</b></p>' + T(['Expert', 'Training loss, steps 1–50', 'Training loss, last 500 steps'], [['16 tokens', '0.88', '0.14'], ['48 tokens', '0.08', '0.06'], ['128 tokens', '0.006', '0.08']]) + '<p>Training loss only, on images 0–799. Steps 5 and 6 measure the experts on new images.</p>' + L(['Use the 1,600 questions of images 0–799. Images 800–999 stay out for step 5.', 'Start each expert as plain area pooling on its grid (4×4, 6×8 or 8×16). Set the LoRA to zero.', 'Do these steps 3,000 times:', '• Read the cached tokens of the next question.', '• Select one expert at random. Each expert has the same chance.', '• Compress the image tokens and the 3 deepstack copies to 16, 48 or 128 tokens.', '• Calculate the loss on the first answer token (\" yes\" or \" no\").', '• Update only the experts (learning rate 0.001) and the LoRA (0.00002).', 'Record the loss every 25 steps. Save the weights every 250 steps.']) + '<p>The vision tower, the merger and the LLM do not change.</p>' },
+  x_5: { t: '5 · Train router', s: 'done', h: '<p><b>Done 16 Nov, 13:11 (30 min).</b></p>' + T(['Expert', 'Correct on images 800–999 (400 questions)', 'Label: smallest correct expert'], [['16 tokens', '94.8%', '379'], ['48 tokens', '95.3%', '9'], ['128 tokens', '97.0%', '12']]) + '<p>Router accuracy on its own 400 questions: 100%. The router has many numbers and few questions. Thus this value is too high. Step 6 gives the real value.</p>' + L(['Use the 400 questions of images 800–999. The experts did not see these images.', '• Give each question to each of the 3 experts. Do not train.', '• Record if each answer is correct.', '• Find the smallest expert with a correct answer. If no expert is correct, use 128.', 'Make the router input: the mean of the image tokens and the mean of the question tokens.', 'Train the router (2 layers, 64 hidden units) to select this expert, 300 passes.', 'Add a cost for each token to the loss. This pushes the router to smaller experts.']) + '<p>The experts and the LoRA do not change. 1,200 answers.</p>' },
+  x_6: { t: '6 · Test MoE', s: 'done', h: '<p><b>Done 16 Nov, 13:57 (46 min). 1,200 answers.</b></p>' + T(['Method', 'Mean tokens', 'Accuracy', 'Yes-rate'], [['MoE (router)', '19.3', '86.0%', '38%'], ['Expert 16 alone', '16', '85.7%', '38%'], ['Expert 48 alone', '48', '89.3%', '41%'], ['Expert 128 alone', '128', '90.0%', '43%'], ['Control 16', '16', '64.0%', '13%'], ['Control 48', '48', '82.7%', '34%'], ['Control 128', '128', '90.0%', '43%'], ['Run A, 75% removed', '67', '87.3%', '–'], ['Run A, all tokens', '269', '91.3%', '–']]) + '<p>The router selected 16 tokens for 289 questions, 48 tokens for 3 and 128 tokens for 8. Time for one answer: 0.8 s with expert 16, 1.4 s with expert 48.</p>' },
+  x_7: { t: '7 · Chart', s: 'done', h: '<svg viewBox="0 0 440 230" width="100%" role="img" aria-label="POPE accuracy against image tokens: MoE 86.0% at 19.3 tokens; experts 85.7, 89.3, 90.0% at 16, 48, 128; control 64.0, 82.7, 90.0%; run A 87.3 to 91.3% at 67 to 269 tokens" style="font:11px system-ui;color:inherit"><g stroke="currentColor" stroke-opacity=".15"><line x1="48" x2="400" y1="170.0" y2="170.0"/><line x1="48" x2="400" y1="127.1" y2="127.1"/><line x1="48" x2="400" y1="84.3" y2="84.3"/><line x1="48" x2="400" y1="41.4" y2="41.4"/></g><g fill="currentColor" fill-opacity=".6"><text x="42" y="174.0" text-anchor="end">60%</text><text x="42" y="131.1" text-anchor="end">70%</text><text x="42" y="88.3" text-anchor="end">80%</text><text x="42" y="45.4" text-anchor="end">90%</text><text x="78.8" y="186" text-anchor="middle">16</text><text x="196.6" y="186" text-anchor="middle">48</text><text x="301.8" y="186" text-anchor="middle">128</text><text x="381.4" y="186" text-anchor="middle">269</text><text x="224.0" y="202" text-anchor="middle">Image tokens into the LLM (mean, log scale)</text></g><polyline fill="none" stroke="#8a8f98" stroke-width="2" stroke-dasharray="4 3" points="232.8,52.9 307.2,38.6 350.7,41.4 381.5,35.7"/><circle cx="232.8" cy="52.9" r="3.5" fill="#8a8f98"><title>87.33% at 67.3 tokens</title></circle><circle cx="307.2" cy="38.6" r="3.5" fill="#8a8f98"><title>90.67% at 134.7 tokens</title></circle><circle cx="350.7" cy="41.4" r="3.5" fill="#8a8f98"><title>90.0% at 202 tokens</title></circle><circle cx="381.5" cy="35.7" r="3.5" fill="#8a8f98"><title>91.33% at 269.3 tokens</title></circle><polyline fill="none" stroke="#0e9aa7" stroke-width="2" points="78.8,152.9 196.6,72.8 301.8,41.4"/><circle cx="78.8" cy="152.9" r="3.5" fill="#0e9aa7"><title>64.0% at 16 tokens</title></circle><circle cx="196.6" cy="72.8" r="3.5" fill="#0e9aa7"><title>82.67% at 48 tokens</title></circle><circle cx="301.8" cy="41.4" r="3.5" fill="#0e9aa7"><title>90.0% at 128 tokens</title></circle><polyline fill="none" stroke="#2e9e5b" stroke-width="2" points="78.8,60.0 196.6,44.3 301.8,41.4"/><circle cx="78.8" cy="60.0" r="3.5" fill="#2e9e5b"><title>85.67% at 16 tokens</title></circle><circle cx="196.6" cy="44.3" r="3.5" fill="#2e9e5b"><title>89.33% at 48 tokens</title></circle><circle cx="301.8" cy="41.4" r="3.5" fill="#2e9e5b"><title>90.0% at 128 tokens</title></circle><path d="M98.9,51.6 l7,7 l-7,7 l-7,-7z" fill="#7b4fd0" stroke="var(--canvas)" stroke-width="1.5"><title>MoE: 86.0% at 19.3 tokens</title></path><text x="108.9" y="74.6" fill="currentColor">MoE</text><text x="202.6" y="36.3" fill="currentColor">Experts</text><text x="202.6" y="86.8" fill="currentColor">Control</text><text x="350.7" y="57.4" text-anchor="middle" fill="currentColor">Run A</text><g fill="currentColor"><text x="48" y="228"><tspan fill="#7b4fd0">◆</tspan> MoE (router)</text><text x="140" y="228"><tspan fill="#2e9e5b">●—</tspan> Each expert alone</text><text x="260" y="228"><tspan fill="#0e9aa7">●—</tspan> Control</text><text x="326" y="228"><tspan fill="#8a8f98">●- -</tspan> Run A</text></g></svg>' + '<p><b>Target not met: MoE gave 86.0% with 19.3 tokens. The target was more than 90% with fewer than 50 tokens.</b></p>' + T(['Test (McNemar, 300 questions)', 'p'], [['MoE vs run A, all tokens', '0.004'], ['MoE vs control 16', '< 0.001'], ['Expert 16 vs control 16', '< 0.001'], ['Expert 48 vs control 48', '0.002'], ['Expert 48 vs run A, all tokens', '0.29'], ['Expert 48 vs run A, 75% removed', '0.33']]) + L(['The trained experts are much better than the control. With 16 tokens: 85.7% against 64.0%.', 'Expert 48 gives 89.3% with 18% of the tokens. This is not significantly different from run A with all tokens (91.3%, p = 0.29).', 'The router selects 16 tokens too frequently. Its labels came from COCO questions. These questions are easier than POPE. Thus the 16-token expert was correct for 95% of them.', 'The model says yes too rarely (38% with 16 tokens; POPE has 50%). With fewer tokens, the model does not see small objects.', 'Next step: train the router with POPE-like questions, or increase the token cost. Then the router will select 48 tokens more frequently.', 'Limit: 300 questions, one seed. A difference smaller than about 3 points cannot be seen.']) },
+  q_q: { t: 'Question', s: 'done', h: '<p>The POPE question, for example "Is there a dog in the image?". It goes to the router, to the LLM and now also to the new part.</p>' },
+  q_img: { t: 'Image', s: 'done', h: '<p>Not changed. The same 1,000 COCO images for training (from the cache) and the same 300 POPE questions for the test.</p>' },
+  q_vis: { t: 'Vision tower', s: 'done', h: '<p>Not changed and frozen. The cache from the MoE compressor tab stays correct. Thus no new cache step is necessary.</p>' },
+  q_merge: { t: 'Merger', s: 'done', h: '<p>Not changed and frozen. It gives ≈ 269 image tokens and 3 deepstack copies.</p>' },
+  q_llm: { t: 'LLM', s: 'done', h: '<p>Weights not changed and frozen. The LoRA from the MoE compressor tab is the start. It continues to train with a low learning rate.</p>' },
+  q_ans: { t: 'Answer', s: 'done', h: '<p>Yes or no. The loss is on the first answer token, as before.</p>' },
+  q_router: { t: 'Router · trained again', s: 'done', h: L(['The design does not change: image mean + question mean → MLP → 3 scores.', 'The start is the trained router from the MoE compressor tab.', 'New: the router trains together with the experts. Gumbel sampling with a decreasing temperature selects the expert. The loss of the selected expert teaches the router (REINFORCE with a baseline for each expert).', 'The loss has a cost for each token. Thus the router selects 16 tokens when 16 tokens are sufficient.', 'The temperature decreases slowly. At the end, the router selects exactly one expert.']) + '<p>Before, the router got labels from easy COCO questions. It selected 16 tokens for 289 of 300 POPE questions. This change removes that problem.</p>' },
+  q_exp: { t: 'Experts', s: 'done', h: '<p>The same 3 experts (16, 48 and 128 tokens), with their trained weights. Each new token is a weighted mean of real image tokens, as before.</p>' + L(['The new part changes only the queries of the experts.', 'At first, the old expert weights are frozen. Only the new part and the router train.', 'After 1,500 steps, the expert weights can also train, with a low learning rate.']) },
+  q_qa: { t: 'Question → expert queries · new', s: 'done', h: L(['Input: the question token embeddings (frozen embedding table of the LLM).', 'A small attention layer makes one summary of the question.', 'A linear layer changes this summary into a shift for the queries of each expert.', 'The shift is added to the learned queries. Thus "Is there a fork?" moves the queries to fork-like image parts.', 'The linear layer starts at zero. Thus at step 0 the new model is exactly the old MoE.']) + '<p>Size: ≈ 1–2 M numbers. The image tokens now change for each question.</p>' },
+  q_more: { t: 'More questions', s: 'done', h: L(['Use the 1,000 cached COCO images. No new cache is necessary.', 'Make ≈ 6 questions for each image: 3 "yes" questions and 3 "no" questions.', 'Make half of the "no" questions hard: use objects that often occur together with the objects in the image.', 'Images 0–799: training. Images 800–999: selection only.', 'Do not use the 300 POPE test questions.']) },
+  q_joint: { t: 'Joint training · new', s: 'done', h: L(['3,000 steps. Each step: one question, the router selects an expert with Gumbel-softmax.', 'Loss: answer loss + a cost for each token.', 'Steps 1–1,500: only the new part and the router train.', 'Steps 1,501–3,000: the experts and the LoRA also train, with a low learning rate.', 'Save a checkpoint every 500 steps.']) + '<p>Time: ≈ 3 h, at ≈ 3 s per step.</p>' },
+  q_select: { t: 'Select', s: 'done', h: L(['Test each checkpoint on the 400 held-out questions of images 800–999: router pick and expert 16 alone.', 'Keep the checkpoint with the best expert-16 accuracy.', 'The old router learned from these 400 questions. Thus its accuracy there is too high, and the selection does not use it.', 'If no checkpoint is better than the old MoE, keep the old MoE. Thus the result cannot become worse.']) },
+  q_test: { t: 'Test', s: 'done', h: L(['The same 300 POPE questions as before.', 'Record the answer, the expert, the number of tokens and the time.', 'Also test each expert alone, with the question input.']) },
+  q_ref: { t: 'Reference', s: 'done', h: '<p>No new run. The old results from the MoE compressor tab:</p>' + T(['Method', 'Tokens', 'Accuracy'], [['Old MoE', '19.3', '86.0%'], ['Expert 48 alone', '48', '89.3%'], ['Run A, all tokens', '269', '91.3%']]) },
+  q_chart: { t: 'Chart', s: 'done', h: '<p>Accuracy against the mean number of tokens. Old and new points on one chart. McNemar tests: new MoE against old MoE, against expert 48 and against run A.</p><p>Success: more than 90% with fewer than 20 tokens.</p>' },
+  qx_1: { t: '1 · Checks', s: 'done', h: '<p><b>Passed on 16 Nov, 22:06.</b></p>' + T(['Check', 'Result'], [['Prompt ids made for new questions = ids from the processor', 'same, 20 of 20'], ['First-token logits with shift 0 = old MoE', 'difference 0, 5 of 5'], ['Peak memory, 3 training steps, all parts, expert 128', '4.39 GB'], ['Time for one training step (cached features)', '3.0 s'], ['Trainable numbers: new part / all', '1.71 M / 6.68 M']]) + '<p>A smoke test of all 6 steps on 4 images also passed.</p>' + L(['Add the new part with its last layer at zero.', 'Compare the first-token logits with the old MoE on 5 questions. The difference must be 0.', 'Do 3 training steps. Measure the peak memory. It must be less than 7 GB.', 'Do a smoke test of all steps on 4 images.']) + '<p>Time: ≈ 15 min.</p>' },
+  qx_2: { t: '2 · More questions', s: 'done', h: '<p><b>Done 16 Nov, 22:06.</b></p>' + T(['Questions', 'Count'], [['All', '4,266'], ['"yes"', '2,133'], ['"no", hard (object that often occurs with the objects in the image)', '1,226'], ['"no", random object', '907'], ['Training (images 0–799)', '3,414']]) + '<p>Fewer than the planned 6,000: many images have fewer than 3 objects that are large enough for a "yes" question.</p>' + L(['Make ≈ 6,000 questions from the COCO labels of the 1,000 cached images.', 'Make half of the "no" questions hard.', 'Write the questions to data/train/questions_qa.jsonl.']) + '<p>Time: ≈ 15 min.</p>' },
+  qx_3: { t: '3 · Joint training', s: 'done', h: '<p><b>Done 16 Nov, 23:04 (58 min). 7 checkpoints (0, 500 … 3,000).</b></p>' + T(['Steps', 'Loss with 16 tokens', 'Mean tokens'], [['1–500', '0.24', '16.1'], ['501–1,000', '0.30', '17.2'], ['1,001–1,500', '0.25', '20.3'], ['1,501–2,000 (phase 2)', '0.28', '20.9'], ['2,001–3,000', '≈ 0.25', '≈ 19']]) + '<p>The training loss did not decrease. Step 4 measures the checkpoints on held-out images.</p>' + L(['Train the new part, the router, then also the experts and the LoRA.', '3,000 steps. Save a checkpoint every 500 steps.', 'Write the loss and the mean number of tokens to a log.']) + '<p>Time: ≈ 3 h.</p>' },
+  qx_4: { t: '4 · Select', s: 'done', h: '<p><b>Done 16 Nov, 23:52. Result: fallback to the old MoE (checkpoint 0).</b></p>' + T(['Checkpoint', 'Expert 16 alone, 400 held-out questions', 'Router: mean tokens'], [['0 (old MoE)', '<b>94.8%</b>', '20.1'], ['500', '90.3%', '16.4'], ['1,000', '89.0%', '19.9'], ['1,500', '91.0%', '20.4'], ['2,000', '91.5%', '22.1'], ['2,500', '92.0%', '21.6'], ['3,000', '92.8%', '20.2']]) + '<p>The question input made expert 16 worse at first (− 5.8 points at step 1,000). It then recovered, but it stayed 2 points below the old MoE. Thus the fallback worked as planned: the result did not become worse.</p>' + L(['Test the 7 checkpoints (step 0 = the old MoE) on the 400 held-out questions.', 'Keep the best one. If the old MoE is best, keep the old MoE.']) + '<p>Time: ≈ 30 min.</p>' },
+  qx_5: { t: '5 · Test', s: 'done', h: '<p><b>Done 17 Nov, 00:35. All 1,200 answers are the same as in the old test.</b></p>' + T(['Method', 'Tokens', 'Accuracy'], [['MoE (fallback = old MoE)', '19.3', '86.0%'], ['Expert 16', '16', '85.7%'], ['Expert 48', '48', '89.3%'], ['Expert 128', '128', '90.0%']]) + '<p>Thus the pipeline is reproducible.</p>' + L(['Test the selected model on the 300 POPE questions.', 'Also test each expert alone.']) + '<p>Time: ≈ 50 min.</p>' },
+  qx_6: { t: '6 · Chart', s: 'done', h: '<p><b>Target not met. The question input gave no gain.</b></p>' + T(['Test (McNemar, 300 POPE questions)', 'p'], [['New MoE vs old MoE', '1.0 (same answers)'], ['New MoE vs expert 48', '0.12'], ['New MoE vs run A, all tokens', '0.004'], ['Expert 48 vs run A, all tokens', '0.29']]) + L(['On held-out images, the question input made expert 16 worse (94.8% → 89.0% at step 1,000). It recovered to 92.8%, but it stayed below the old MoE.', 'Probable cause: 3,414 training questions are too few to learn which image parts a question asks about.', 'The best result stays expert 48: 89.3% with 18% of the tokens. It is not significantly different from all tokens (p = 0.29).', 'Next step: test expert 48 on a harder benchmark than POPE.']) },
+  b_gqa: { t: 'GQA', s: 'done', h: '<p>Questions about objects, their properties and their relations, for example "What is left of the cup?". 300 questions, selected at random (seed 0) from the testdev-balanced set (12,578 questions, 398 images). Images ≈ 260 tokens.</p><p>Score: exact match after normalization (lower case, no articles, numbers as digits).</p>' },
+  b_tvqa: { t: 'TextVQA', s: 'done', h: '<p>Questions that need text in the image, for example "What is the brand of this camera?". 300 questions, selected at random (seed 0) from the first part of the validation set (1,667 questions). Images ≈ 720 tokens.</p><p>Score: VQA accuracy. 10 people gave an answer. An answer is fully correct if 3 or more people gave it.</p>' },
+  b_vis: { t: 'Vision tower + merger', s: 'done', h: '<p>Not changed and frozen. TextVQA images are larger. Thus they give ≈ 720 tokens, not ≈ 260. 48 tokens are then only ≈ 7% of the tokens.</p>' },
+  b_all: { t: 'All tokens', s: 'done', h: '<p>The original model with all image tokens. This is the upper reference.</p>' + T(['Set', 'Tokens', 'Score'], [['GQA', '263', '61.7%'], ['TextVQA', '751', '81.2%']]) },
+  b_rand: { t: 'Random 48', s: 'done', h: '<p>The original model. Keep 48 image tokens, selected at random (seed = question number). Kept tokens keep their positions.</p>' + T(['Set', 'Score', 'vs all tokens (p)'], [['GQA', '55.7%', '0.011'], ['TextVQA', '31.9%', '< 0.001']]) },
+  b_ctrl: { t: 'Control 48', s: 'done', h: '<p>The original model. Keep the 48 tokens with the highest attention from the last token at layer 2. The same method as the control in the MoE tab.</p>' + T(['Set', 'Score', 'vs all tokens (p)'], [['GQA', '51.3%', '< 0.001'], ['TextVQA', '14.7%', '< 0.001']]) + '<p>Worse than random on both sets, as on POPE.</p>' },
+  b_e48: { t: 'Expert 48', s: 'done', h: '<p>The trained 48-token expert and its LoRA from the MoE tab. No new training. It learned only on yes/no questions about COCO objects. This test shows if it also works on other tasks.</p><p>On POPE: 89.3% (all tokens 91.3%, p = 0.29).</p>' + T(['Set', 'Score', 'vs all (p)', 'vs control 48 (p)', 'vs random 48 (p)'], [['GQA', '58.7%', '0.26', '0.007', '0.31'], ['TextVQA', '24.0%', '< 0.001', '0.001', '0.013']]) + '<p>GQA: close to all tokens. TextVQA: worse than random 48. The expert learned to keep object regions, not text.</p>' },
+  b_e128: { t: 'Expert 128', s: 'done', h: '<p>The trained 128-token expert and its LoRA. It shows how much a larger expert recovers.</p><p>On POPE: 90.0%.</p>' + T(['Set', 'Score', 'vs all tokens (p)'], [['GQA', '63.3%', '0.53'], ['TextVQA', '39.5%', '< 0.001']]) + '<p>On GQA, 128 tokens are as good as all 263 tokens.</p>' },
+  b_llm: { t: 'LLM', s: 'done', h: '<p>Weights not changed. Greedy decoding, max 10 new tokens. The prompt ends with "Answer the question using a single word or phrase." The LoRA is used only with the experts.</p>' },
+  b_score: { t: 'Score', s: 'done', h: L(['GQA: exact match.', 'TextVQA: VQA accuracy (mean over the 10 leave-one-out sets of min(1, matches / 3)).', 'McNemar tests (score ≥ 0.5 = correct): expert 48 against all tokens, against control 48 and against random 48.']) },
+  bx_1: { t: '1 · Checks', s: 'done', h: '<p><b>Passed on 17 Nov, 12:28.</b></p>' + L(['All 5 methods ran on 2 questions of each set. No errors.', 'The scores and the files were correct.', 'Measured: TextVQA images give 672–768 tokens. GQA images give 260–300 tokens.']) },
+  bx_2: { t: '2 · Original model', s: 'done', h: '<p><b>Done 17 Nov, 17:13 (4.7 h).</b></p>' + L(['For each of the 600 questions: send the image through the vision tower once.', 'Get the answer with all tokens, with random 48 and with control 48.', 'Record the answer, the score and the number of tokens.']) + '<p>Time: ≈ 8 h.</p>' },
+  bx_3: { t: '3 · Experts', s: 'done', h: L(['Load the trained experts and the LoRA.', 'Get the answer with expert 48 and with expert 128 for the same 600 questions.']) + '<p>Done 17 Nov, 19:21 (2.1 h).</p>' },
+  bx_4: { t: '4 · Chart', s: 'done', h: '<svg viewBox="0 0 440 300" width="100%" role="img" aria-label="Score per method. GQA: all tokens 61.7, random 48 55.7, control 48 51.3, expert 48 58.7, expert 128 63.3 percent. TextVQA: all tokens 81.2, random 48 31.9, control 48 14.7, expert 48 24.0, expert 128 39.5 percent." style="font:11px system-ui;color:inherit"><text x="0" y="14" fill="currentColor" font-weight="600">GQA · exact match</text><text x="86" y="34" text-anchor="end" fill="currentColor" fill-opacity=".75">All tokens</text><rect x="92" y="24" width="185.1" height="14" rx="3" fill="#8a8f98"><title>All tokens: 61.7% with 263 tokens</title></rect><text x="282.1" y="35" fill="currentColor">61.7%</text><text x="86" y="53" text-anchor="end" fill="currentColor" fill-opacity=".75">Random 48</text><rect x="92" y="43" width="167.1" height="14" rx="3" fill="#c08a2e"><title>Random 48: 55.7% with 48 tokens</title></rect><text x="264.1" y="54" fill="currentColor">55.7%</text><text x="86" y="72" text-anchor="end" fill="currentColor" fill-opacity=".75">Control 48</text><rect x="92" y="62" width="153.9" height="14" rx="3" fill="#0e9aa7"><title>Control 48: 51.3% with 48 tokens</title></rect><text x="250.9" y="73" fill="currentColor">51.3%</text><text x="86" y="91" text-anchor="end" fill="currentColor" fill-opacity=".75">Expert 48</text><rect x="92" y="81" width="176.1" height="14" rx="3" fill="#2e9e5b"><title>Expert 48: 58.7% with 48 tokens</title></rect><text x="273.1" y="92" fill="currentColor">58.7%</text><text x="86" y="110" text-anchor="end" fill="currentColor" fill-opacity=".75">Expert 128</text><rect x="92" y="100" width="189.9" height="14" rx="3" fill="#1f6f40"><title>Expert 128: 63.3% with 128 tokens</title></rect><text x="286.9" y="111" fill="currentColor">63.3%</text><text x="0" y="139" fill="currentColor" font-weight="600">TextVQA · VQA accuracy</text><text x="86" y="159" text-anchor="end" fill="currentColor" fill-opacity=".75">All tokens</text><rect x="92" y="149" width="243.6" height="14" rx="3" fill="#8a8f98"><title>All tokens: 81.2% with 751 tokens</title></rect><text x="340.6" y="160" fill="currentColor">81.2%</text><text x="86" y="178" text-anchor="end" fill="currentColor" fill-opacity=".75">Random 48</text><rect x="92" y="168" width="95.7" height="14" rx="3" fill="#c08a2e"><title>Random 48: 31.9% with 48 tokens</title></rect><text x="192.7" y="179" fill="currentColor">31.9%</text><text x="86" y="197" text-anchor="end" fill="currentColor" fill-opacity=".75">Control 48</text><rect x="92" y="187" width="44.1" height="14" rx="3" fill="#0e9aa7"><title>Control 48: 14.7% with 48 tokens</title></rect><text x="141.1" y="198" fill="currentColor">14.7%</text><text x="86" y="216" text-anchor="end" fill="currentColor" fill-opacity=".75">Expert 48</text><rect x="92" y="206" width="72.0" height="14" rx="3" fill="#2e9e5b"><title>Expert 48: 24.0% with 48 tokens</title></rect><text x="169.0" y="217" fill="currentColor">24.0%</text><text x="86" y="235" text-anchor="end" fill="currentColor" fill-opacity=".75">Expert 128</text><rect x="92" y="225" width="118.5" height="14" rx="3" fill="#1f6f40"><title>Expert 128: 39.5% with 128 tokens</title></rect><text x="215.5" y="236" fill="currentColor">39.5%</text><text x="92" y="258" fill="currentColor" fill-opacity=".6">Tokens: all = 263 (GQA) / 751 (TextVQA); the others as named.</text></svg>' + '<p><b>GQA: expert 48 is close to all tokens. TextVQA: all compression fails.</b></p>' + L(['GQA: expert 48 gives 58.7% with 18% of the tokens. All tokens give 61.7% (p = 0.26). Expert 128 gives 63.3% (p = 0.53).', 'TextVQA: all tokens give 81.2%. With 48 tokens, the best is random (31.9%). Expert 48 gives 24.0%. To read text, the model needs many tokens.', 'The attention control is the worst method on both sets.', 'The experts learned on yes/no questions about objects. Thus they keep object regions, not text regions.', 'Limit: 300 questions per set, one seed.']) },
+  bx_5: { t: '5 · Mixed training', s: 'plan', h: '<p>Only if expert 48 is much worse than all tokens on TextVQA.</p>' + L(['Train expert 48 again on mixed data: POPE-like + GQA + TextVQA training questions.', 'Test again on the same 600 questions.']) + '<p>Time: one more night. Not started. The condition is met (TextVQA failed). This is a possible next step.</p>' },
+};
+const DIAG = {
+  q_qa: `<svg class="mini" viewBox="0 0 440 150" role="img" aria-label="Question tokens are summed by a small attention layer, a zero-start linear layer makes a shift, the shift is added to the expert queries."><rect class="tile c-in" x="0" y="40" width="96" height="46" rx="5"/><text class="t-strong" x="48" y="60" text-anchor="middle">Question</text><text class="t-dim" x="48" y="76" text-anchor="middle">token embeddings</text><path class="flow qa" d="M96,63 L112,63" marker-end="url(#aq)"/><rect class="tile c-qa" x="114" y="40" width="88" height="46" rx="5"/><text class="t-strong" x="158" y="60" text-anchor="middle">Attention</text><text class="t-dim" x="158" y="76" text-anchor="middle">→ 1 summary</text><path class="flow qa" d="M202,63 L218,63" marker-end="url(#aq)"/><rect class="tile c-qa" x="220" y="40" width="88" height="46" rx="5"/><text class="t-strong" x="264" y="60" text-anchor="middle">Linear</text><text class="t-dim" x="264" y="76" text-anchor="middle">starts at 0</text><path class="flow qa" d="M308,63 L334,63" marker-end="url(#aq)"/><circle cx="346" cy="63" r="11" style="fill: var(--canvas); stroke: var(--c-qa); stroke-width: 1.6"/><text class="t-strong" x="346" y="68" text-anchor="middle">+</text><rect class="tile c-exp2" x="300" y="104" width="92" height="40" rx="5"/><text class="t-strong" x="346" y="128" text-anchor="middle">Expert queries</text><path class="flow" d="M346,104 L346,76" marker-end="url(#ah)"/><path class="flow qa" d="M357,63 L380,63" marker-end="url(#aq)"/><text class="t-strong" x="384" y="58">New</text><text class="t-dim" x="384" y="74">queries</text><text class="t-dim" x="0" y="20">Step 0: shift = 0 → same as the old MoE.</text></svg>`,
+  m_router: `<svg class="mini" viewBox="0 0 440 158" role="img" aria-label="Router: image mean and question mean are joined, a 2-layer MLP gives a score for each expert, the highest score wins."><rect class="tile c-frozen" x="0" y="6" width="120" height="44" rx="5"/><text class="t-strong" x="60.0" y="25.0" text-anchor="middle">Image tokens</text><text class="t-dim" x="60.0" y="40.0" text-anchor="middle">mean → 1 vector</text><rect class="tile c-in" x="0" y="70" width="120" height="44" rx="5"/><text class="t-strong" x="60.0" y="89.0" text-anchor="middle">Question</text><text class="t-dim" x="60.0" y="104.0" text-anchor="middle">mean → 1 vector</text><path class="flow" d="M120,28 L132,28 L132,52 L142,52" marker-end="url(#ah)"/><path class="flow" d="M120,92 L132,92 L132,70 L142,70" marker-end="url(#ah)"/><rect class="tile c-router" x="144" y="38" width="72" height="46" rx="5"/><text class="t-strong" x="180.0" y="58.0" text-anchor="middle">Join</text><text class="t-dim" x="180.0" y="73.0" text-anchor="middle">2 × 2560</text><path class="flow" d="M216,61 L234,61" marker-end="url(#ah)"/><rect class="tile c-router" x="236" y="38" width="78" height="46" rx="5"/><text class="t-strong" x="275.0" y="58.0" text-anchor="middle">MLP</text><text class="t-dim" x="275.0" y="73.0" text-anchor="middle">2 layers</text><path class="flow" d="M314,61 L332,61" marker-end="url(#ah)"/><text class="t-strong" x="346" y="31" text-anchor="start">16</text><text class="t-dim" x="432" y="31" text-anchor="end">p = 0.7</text><text class="t-strong" x="346" y="63" text-anchor="start">48</text><text class="t-dim" x="432" y="63" text-anchor="end">p = 0.2</text><text class="t-strong" x="346" y="95" text-anchor="start">128</text><text class="t-dim" x="432" y="95" text-anchor="end">p = 0.1</text><text class="t-dim" x="0" y="134" text-anchor="start">Select the expert with the highest score (here: 16).</text><text class="t-dim" x="0" y="150" text-anchor="start">Training adds a cost per token. This pushes to small experts.</text></svg>`,
+  m_exp: `<svg class="mini" viewBox="0 0 440 172" role="img" aria-label="Expert: k learned queries attend over all image tokens and give k new tokens."><text class="t-dim" x="0" y="12" text-anchor="start">≈ 269 image tokens</text><rect x="0" y="20" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="13" y="20" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="26" y="20" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="39" y="20" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="52" y="20" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="65" y="20" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="0" y="33" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="13" y="33" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="26" y="33" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="39" y="33" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="52" y="33" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="65" y="33" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="0" y="46" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="13" y="46" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="26" y="46" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="39" y="46" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="52" y="46" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="65" y="46" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="0" y="59" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="13" y="59" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="26" y="59" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="39" y="59" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="52" y="59" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="65" y="59" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="0" y="72" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="13" y="72" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="26" y="72" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="39" y="72" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="52" y="72" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="65" y="72" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="0" y="85" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="13" y="85" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="26" y="85" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="39" y="85" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="52" y="85" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="65" y="85" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="0" y="98" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="13" y="98" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="26" y="98" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="39" y="98" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="52" y="98" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><rect x="65" y="98" width="10" height="10" rx="2" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.6"/><text class="t-dim" x="170" y="12" text-anchor="start">k learned queries</text><rect x="170" y="20" width="12" height="12" rx="2" style="fill: var(--c-exp-3); stroke: var(--c-exp); stroke-width:.8"/><rect x="186" y="20" width="12" height="12" rx="2" style="fill: var(--c-exp-3); stroke: var(--c-exp); stroke-width:.8"/><rect x="202" y="20" width="12" height="12" rx="2" style="fill: var(--c-exp-3); stroke: var(--c-exp); stroke-width:.8"/><rect x="218" y="20" width="12" height="12" rx="2" style="fill: var(--c-exp-3); stroke: var(--c-exp); stroke-width:.8"/><rect x="234" y="20" width="12" height="12" rx="2" style="fill: var(--c-exp-3); stroke: var(--c-exp); stroke-width:.8"/><rect x="250" y="20" width="12" height="12" rx="2" style="fill: var(--c-exp-3); stroke: var(--c-exp); stroke-width:.8"/><path class="flow" d="M218,34 L218,52" marker-end="url(#ah)"/><rect class="tile c-exp2" x="140" y="54" width="160" height="46" rx="5"/><text class="t-strong" x="220.0" y="74.0" text-anchor="middle">Attention pooling</text><text class="t-dim" x="220.0" y="89.0" text-anchor="middle">spatial + content</text><path class="flow" d="M78,77 L138,77" marker-end="url(#ah)"/><path class="flow" d="M300,77 L338,77" marker-end="url(#ah)"/><text class="t-dim" x="344" y="12" text-anchor="start">k new tokens</text><rect x="346" y="20" width="12" height="12" rx="2" style="fill: var(--c-exp-3); stroke: var(--c-exp); stroke-width:.8"/><rect x="346" y="36" width="12" height="12" rx="2" style="fill: var(--c-exp-3); stroke: var(--c-exp); stroke-width:.8"/><rect x="346" y="52" width="12" height="12" rx="2" style="fill: var(--c-exp-3); stroke: var(--c-exp); stroke-width:.8"/><rect x="346" y="68" width="12" height="12" rx="2" style="fill: var(--c-exp-3); stroke: var(--c-exp); stroke-width:.8"/><rect x="346" y="84" width="12" height="12" rx="2" style="fill: var(--c-exp-3); stroke: var(--c-exp); stroke-width:.8"/><rect x="346" y="100" width="12" height="12" rx="2" style="fill: var(--c-exp-3); stroke: var(--c-exp); stroke-width:.8"/><text class="t-dim" x="366" y="60" text-anchor="start">k = 16,</text><text class="t-dim" x="366" y="75" text-anchor="start">48 or 128</text><text class="t-dim" x="0" y="132" text-anchor="start">Each new token is a weighted mean of real image tokens. No token is removed.</text><text class="t-dim" x="0" y="148" text-anchor="start">The same weights pool the 3 deepstack copies to k tokens each.</text><text class="t-dim" x="0" y="164" text-anchor="start">New tokens get positions on a small grid: 4×4, 6×8 or 8×16.</text></svg>`,
+  m_merge: `<svg class="mini" viewBox="0 0 440 160" role="img" aria-label="Merger: each 2 by 2 block of vision patches becomes one image token."><text class="t-dim" x="0" y="12" text-anchor="start">Vision patches</text><rect x="0" y="20" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="12" y="20" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="24" y="20" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="36" y="20" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="48" y="20" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="60" y="20" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="72" y="20" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="84" y="20" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="0" y="32" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="12" y="32" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="24" y="32" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="36" y="32" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="48" y="32" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="60" y="32" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="72" y="32" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="84" y="32" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="0" y="44" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="12" y="44" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="24" y="44" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="36" y="44" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="48" y="44" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="60" y="44" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="72" y="44" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="84" y="44" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="0" y="56" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="12" y="56" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="24" y="56" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="36" y="56" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="48" y="56" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="60" y="56" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="72" y="56" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="84" y="56" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="0" y="68" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="12" y="68" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="24" y="68" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="36" y="68" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="48" y="68" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="60" y="68" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="72" y="68" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="84" y="68" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="0" y="80" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="12" y="80" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="24" y="80" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="36" y="80" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="48" y="80" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="60" y="80" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="72" y="80" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="84" y="80" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="0" y="92" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="12" y="92" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="24" y="92" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="36" y="92" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="48" y="92" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="60" y="92" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="72" y="92" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="84" y="92" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="0" y="104" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="12" y="104" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="24" y="104" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="36" y="104" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="48" y="104" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="60" y="104" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="72" y="104" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="84" y="104" width="10" height="10" rx="1.5" style="fill: var(--c-in-soft); stroke: var(--c-in); stroke-width:.5"/><rect x="-1" y="19" width="22" height="22" rx="3" style="fill:none; stroke: var(--fg); stroke-opacity:.5; stroke-width:1"/><rect x="23" y="19" width="22" height="22" rx="3" style="fill:none; stroke: var(--fg); stroke-opacity:.5; stroke-width:1"/><rect x="47" y="19" width="22" height="22" rx="3" style="fill:none; stroke: var(--fg); stroke-opacity:.5; stroke-width:1"/><rect x="71" y="19" width="22" height="22" rx="3" style="fill:none; stroke: var(--fg); stroke-opacity:.5; stroke-width:1"/><rect x="-1" y="43" width="22" height="22" rx="3" style="fill:none; stroke: var(--fg); stroke-opacity:.5; stroke-width:1"/><rect x="23" y="43" width="22" height="22" rx="3" style="fill:none; stroke: var(--fg); stroke-opacity:.5; stroke-width:1"/><rect x="47" y="43" width="22" height="22" rx="3" style="fill:none; stroke: var(--fg); stroke-opacity:.5; stroke-width:1"/><rect x="71" y="43" width="22" height="22" rx="3" style="fill:none; stroke: var(--fg); stroke-opacity:.5; stroke-width:1"/><rect x="-1" y="67" width="22" height="22" rx="3" style="fill:none; stroke: var(--fg); stroke-opacity:.5; stroke-width:1"/><rect x="23" y="67" width="22" height="22" rx="3" style="fill:none; stroke: var(--fg); stroke-opacity:.5; stroke-width:1"/><rect x="47" y="67" width="22" height="22" rx="3" style="fill:none; stroke: var(--fg); stroke-opacity:.5; stroke-width:1"/><rect x="71" y="67" width="22" height="22" rx="3" style="fill:none; stroke: var(--fg); stroke-opacity:.5; stroke-width:1"/><rect x="-1" y="91" width="22" height="22" rx="3" style="fill:none; stroke: var(--fg); stroke-opacity:.5; stroke-width:1"/><rect x="23" y="91" width="22" height="22" rx="3" style="fill:none; stroke: var(--fg); stroke-opacity:.5; stroke-width:1"/><rect x="47" y="91" width="22" height="22" rx="3" style="fill:none; stroke: var(--fg); stroke-opacity:.5; stroke-width:1"/><rect x="71" y="91" width="22" height="22" rx="3" style="fill:none; stroke: var(--fg); stroke-opacity:.5; stroke-width:1"/><path class="flow" d="M104,68 L140,68" marker-end="url(#ah)"/><rect class="tile c-frozen" x="142" y="46" width="120" height="44" rx="5"/><text class="t-strong" x="202.0" y="65.0" text-anchor="middle">Merge 2 × 2</text><text class="t-dim" x="202.0" y="80.0" text-anchor="middle">+ MLP to 2560</text><path class="flow" d="M262,68 L298,68" marker-end="url(#ah)"/><text class="t-dim" x="300" y="12" text-anchor="start">Image tokens</text><rect x="300" y="20" width="20" height="20" rx="3" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.8"/><rect x="324" y="20" width="20" height="20" rx="3" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.8"/><rect x="348" y="20" width="20" height="20" rx="3" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.8"/><rect x="372" y="20" width="20" height="20" rx="3" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.8"/><rect x="300" y="44" width="20" height="20" rx="3" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.8"/><rect x="324" y="44" width="20" height="20" rx="3" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.8"/><rect x="348" y="44" width="20" height="20" rx="3" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.8"/><rect x="372" y="44" width="20" height="20" rx="3" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.8"/><rect x="300" y="68" width="20" height="20" rx="3" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.8"/><rect x="324" y="68" width="20" height="20" rx="3" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.8"/><rect x="348" y="68" width="20" height="20" rx="3" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.8"/><rect x="372" y="68" width="20" height="20" rx="3" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.8"/><rect x="300" y="92" width="20" height="20" rx="3" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.8"/><rect x="324" y="92" width="20" height="20" rx="3" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.8"/><rect x="348" y="92" width="20" height="20" rx="3" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.8"/><rect x="372" y="92" width="20" height="20" rx="3" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:.8"/><text class="t-dim" x="0" y="136" text-anchor="start">4 neighbour patches become 1 token. A typical image gives ≈ 269 tokens.</text><text class="t-dim" x="0" y="152" text-anchor="start">Vision layers 6, 12 and 18 go through their own mergers: the 3 deepstack copies.</text></svg>`,
+  m_llm: `<svg class="mini" viewBox="0 0 440 170" role="img" aria-label="LoRA: the frozen weight W plus a small trained path B times A."><rect class="tile c-in" x="0" y="46" width="46" height="36" rx="5"/><text class="t-strong" x="23.0" y="68.0" text-anchor="middle">x</text><rect class="tile c-frozen" x="96" y="6" width="150" height="36" rx="5"/><text class="t-strong" x="171.0" y="21.0" text-anchor="middle">W</text><text class="t-dim" x="171.0" y="36.0" text-anchor="middle">frozen</text><rect class="tile c-lora" x="96" y="86" width="66" height="36" rx="5"/><text class="t-strong" x="129.0" y="101.0" text-anchor="middle">A</text><text class="t-dim" x="129.0" y="116.0" text-anchor="middle">2560 → 8</text><rect class="tile c-lora" x="180" y="86" width="66" height="36" rx="5"/><text class="t-strong" x="213.0" y="101.0" text-anchor="middle">B</text><text class="t-dim" x="213.0" y="116.0" text-anchor="middle">8 → 2560</text><path class="flow" d="M46,64 L70,64 L70,24 L94,24" marker-end="url(#ah)"/><path class="flow" d="M46,64 L70,64 L70,104 L94,104" marker-end="url(#ah)"/><path class="flow" d="M162,104 L178,104" marker-end="url(#ah)"/><circle cx="296" cy="64" r="14" style="fill: var(--canvas); stroke: var(--muted); stroke-width:1.4"/><text class="t-strong" x="296" y="69" text-anchor="middle">+</text><path class="flow" d="M246,24 L296,24 L296,48" marker-end="url(#ah)"/><path class="flow" d="M246,104 L296,104 L296,80" marker-end="url(#ah)"/><path class="flow" d="M310,64 L346,64" marker-end="url(#ah)"/><rect class="tile c-in" x="348" y="46" width="60" height="36" rx="5"/><text class="t-strong" x="378.0" y="68.0" text-anchor="middle">y</text><text class="t-dim" x="0" y="146" text-anchor="start">y = W·x + 20 · B·A·x. Only A and B learn. B starts at 0, so y = W·x at the start.</text><text class="t-dim" x="0" y="162" text-anchor="start">Used on q_proj and v_proj in all 36 layers (≈ 2.9 M numbers).</text></svg>`,
+  m_ctrl: `<svg class="mini" viewBox="0 0 440 170" role="img" aria-label="Control: attention scores at layer 2 select the top k image tokens."><rect class="tile c-frozen" x="0" y="40" width="96" height="46" rx="5"/><text class="t-strong" x="48.0" y="60.0" text-anchor="middle">LLM</text><text class="t-dim" x="48.0" y="75.0" text-anchor="middle">layers 1–2</text><path class="flow" d="M96,63 L118,63" marker-end="url(#ah)"/><rect x="122" y="76" width="8" height="10" rx="1.5" style="fill:var(--line)"/><rect x="133" y="60" width="8" height="26" rx="1.5" style="fill:var(--line)"/><rect x="144" y="78" width="8" height="8" rx="1.5" style="fill:var(--line)"/><rect x="155" y="48" width="8" height="38" rx="1.5" style="fill:var(--c-ctrl)"/><rect x="166" y="72" width="8" height="14" rx="1.5" style="fill:var(--line)"/><rect x="177" y="56" width="8" height="30" rx="1.5" style="fill:var(--c-ctrl)"/><rect x="188" y="80" width="8" height="6" rx="1.5" style="fill:var(--line)"/><rect x="199" y="44" width="8" height="42" rx="1.5" style="fill:var(--c-ctrl)"/><rect x="210" y="74" width="8" height="12" rx="1.5" style="fill:var(--line)"/><rect x="221" y="64" width="8" height="22" rx="1.5" style="fill:var(--line)"/><rect x="232" y="77" width="8" height="9" rx="1.5" style="fill:var(--line)"/><rect x="243" y="52" width="8" height="34" rx="1.5" style="fill:var(--c-ctrl)"/><line x1="120" y1="87" x2="254" y2="87" style="stroke: var(--muted)"/><text class="t-dim" x="120" y="104" text-anchor="start">attention of the last</text><text class="t-dim" x="120" y="118" text-anchor="start">question token</text><path class="flow" d="M258,63 L278,63" marker-end="url(#ah)"/><rect class="tile c-ctrl" x="280" y="40" width="78" height="46" rx="5"/><text class="t-strong" x="319.0" y="60.0" text-anchor="middle">Keep top k</text><text class="t-dim" x="319.0" y="75.0" text-anchor="middle">all paths</text><path class="flow" d="M358,63 L376,63" marker-end="url(#ah)"/><rect class="tile c-frozen" x="378" y="40" width="62" height="46" rx="5"/><text class="t-strong" x="409.0" y="60.0" text-anchor="middle">LLM</text><text class="t-dim" x="409.0" y="75.0" text-anchor="middle">→ answer</text><text class="t-dim" x="0" y="146" text-anchor="start">Score each image token. Keep the k tokens with the highest score.</text><text class="t-dim" x="0" y="162" text-anchor="start">No training. Kept tokens keep their positions.</text></svg>`,
+  m_cache: `<svg class="mini" viewBox="0 0 440 104" role="img" aria-label="Cache: image through vision tower and merger, saved as one file per image."><rect class="tile c-in" x="0" y="20" width="80" height="44" rx="5"/><text class="t-strong" x="40.0" y="39.0" text-anchor="middle">Image</text><text class="t-dim" x="40.0" y="54.0" text-anchor="middle">1 of 1,000</text><path class="flow" d="M80,42 L98,42" marker-end="url(#ah)"/><rect class="tile c-frozen" x="100" y="20" width="96" height="44" rx="5"/><text class="t-strong" x="148.0" y="39.0" text-anchor="middle">Vision tower</text><text class="t-dim" x="148.0" y="54.0" text-anchor="middle">frozen</text><path class="flow" d="M196,42 L214,42" marker-end="url(#ah)"/><rect class="tile c-frozen" x="216" y="20" width="96" height="44" rx="5"/><text class="t-strong" x="264.0" y="39.0" text-anchor="middle">Merger</text><text class="t-dim" x="264.0" y="54.0" text-anchor="middle">+ deepstack</text><path class="flow" d="M312,42 L336,42" marker-end="url(#ah)"/><path d="M340,18 v46 a40,9 0 0 0 80,0 v-46" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:1.2"/><ellipse cx="380" cy="18" rx="40" ry="9" style="fill: var(--c-frozen); stroke: var(--muted); stroke-width:1.2"/><text class="t-strong" x="380" y="50" text-anchor="middle">1 file</text><text class="t-dim" x="380" y="64" text-anchor="middle">per image</text><text class="t-dim" x="0" y="96" text-anchor="start">Each file: ≈ 269 tokens + 3 deepstack copies + grid size, 16-bit, ≈ 5.5 MB.</text></svg>`,
+  m_texp: `<svg class="mini" viewBox="0 0 440 180" role="img" aria-label="Training loop for the experts."><rect class="tile c-frozen" x="0" y="10" width="96" height="46" rx="5"/><text class="t-strong" x="48.0" y="30.0" text-anchor="middle">Cached tokens</text><text class="t-dim" x="48.0" y="45.0" text-anchor="middle">next question</text><path class="flow" d="M96,33 L114,33" marker-end="url(#ah)"/><rect class="tile c-exp2" x="116" y="10" width="96" height="46" rx="5"/><text class="t-strong" x="164.0" y="30.0" text-anchor="middle">Random expert</text><text class="t-dim" x="164.0" y="45.0" text-anchor="middle">1 of 3</text><path class="flow" d="M212,33 L230,33" marker-end="url(#ah)"/><rect class="tile c-exp2" x="232" y="10" width="96" height="46" rx="5"/><text class="t-strong" x="280.0" y="30.0" text-anchor="middle">Compress</text><text class="t-dim" x="280.0" y="45.0" text-anchor="middle">to 16/48/128</text><path class="flow" d="M328,33 L346,33" marker-end="url(#ah)"/><rect class="tile c-lora" x="348" y="10" width="80" height="46" rx="5"/><text class="t-strong" x="388.0" y="30.0" text-anchor="middle">LLM</text><text class="t-dim" x="388.0" y="45.0" text-anchor="middle">+ LoRA</text><path class="flow" d="M396,56 L396,84" marker-end="url(#ah)"/><rect class="tile c-eval" x="340" y="86" width="100" height="46" rx="5"/><text class="t-strong" x="390.0" y="106.0" text-anchor="middle">Loss</text><text class="t-dim" x="390.0" y="121.0" text-anchor="middle">on " yes" / " no"</text><path class="flow" d="M340,109 L262,109" marker-end="url(#ah)"/><rect class="tile c-exp2" x="120" y="86" width="140" height="46" rx="5"/><text class="t-strong" x="190.0" y="106.0" text-anchor="middle">Update</text><text class="t-dim" x="190.0" y="121.0" text-anchor="middle">experts + LoRA (Adam)</text><path class="flow" d="M120,109 L48,109 L48,58" marker-end="url(#ah)"/><text class="t-dim" x="0" y="156" text-anchor="start">Repeat 3,000 times. Each expert gets ≈ 1,000 steps.</text><text class="t-dim" x="0" y="172" text-anchor="start">Frozen: vision tower, merger, LLM base weights.</text></svg>`,
+  m_trouter: `<svg class="mini" viewBox="0 0 440 160" role="img" aria-label="Router labels: the smallest expert with a correct answer."><text class="t-dim" x="0" y="12" text-anchor="start">One training question:</text><rect class="tile c-exp1" x="0" y="20" width="130" height="26" rx="5"/><text class="t-strong" x="10" y="37" text-anchor="start">16 tokens</text><text class="t-dim" x="122" y="37" text-anchor="end">✗ wrong</text><rect class="tile c-exp2" x="0" y="52" width="130" height="26" rx="5"/><text class="t-strong" x="10" y="69" text-anchor="start">48 tokens</text><text class="t-dim" x="122" y="69" text-anchor="end">✓ correct</text><rect class="tile c-exp3" x="0" y="84" width="130" height="26" rx="5"/><text class="t-strong" x="10" y="101" text-anchor="start">128 tokens</text><text class="t-dim" x="122" y="101" text-anchor="end">✓ correct</text><path class="flow" d="M130,65 L156,65" marker-end="url(#ah)"/><rect class="tile c-router" x="158" y="40" width="120" height="50" rx="5"/><text class="t-strong" x="218.0" y="62.0" text-anchor="middle">Label = 48</text><text class="t-dim" x="218.0" y="77.0" text-anchor="middle">smallest correct</text><path class="flow" d="M278,65 L298,65" marker-end="url(#ah)"/><rect class="tile c-router" x="300" y="40" width="140" height="50" rx="5"/><text class="t-strong" x="370.0" y="62.0" text-anchor="middle">Train router</text><text class="t-dim" x="370.0" y="77.0" text-anchor="middle">loss + cost per token</text><text class="t-dim" x="0" y="136" text-anchor="start">Do this for the 400 held-out questions (1,200 answers).</text><text class="t-dim" x="0" y="152" text-anchor="start">If no expert is correct, the label is 128.</text></svg>`
+};
+const panel = document.getElementById('detail');
+const hots = document.querySelectorAll('svg .hot');
+function hide() {
+  panel.hidden = true;
+  hots.forEach(h => h.classList.remove('sel'));
+}
+function show(id, el) {
+  const b = BOX[id]; if (!b) return;
+  hots.forEach(h => h.classList.toggle('sel', h.dataset.id === id));
+  panel.innerHTML = `<button class="x" type="button" aria-label="Close">×</button><h2>${b.t} <span class="pill ${b.s}">${b.s === 'done' ? 'Done' : 'Planned'}</span></h2>${DIAG[id] || ''}${b.h}`;
+  panel.querySelector('.x').onclick = hide;
+  panel.hidden = false;
+  // Float next to the clicked box: right of it if there is room, else left, else below
+  const r = el.getBoundingClientRect(), w = panel.offsetWidth, ht = panel.offsetHeight, g = 12;
+  let x = r.right + g <= innerWidth - w - 8 ? r.right + g : r.left - g - w >= 8 ? r.left - g - w : Math.max(8, Math.min(r.left, innerWidth - w - 8));
+  let y = x === r.right + g || x === r.left - g - w ? r.top : r.bottom + g;
+  y = Math.max(8, Math.min(y, innerHeight - ht - 8));
+  Object.assign(panel.style, { left: x + 'px', top: y + 'px' });
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hide(); });
+document.addEventListener('pointerdown', e => { if (!panel.hidden && !panel.contains(e.target) && !e.target.closest('svg .hot')) hide(); });
+addEventListener('scroll', hide, { passive: true });
+hots.forEach(h => {
+  // A finished box gets a green check mark on its top-right corner
+  if (BOX[h.dataset.id]?.s === 'done') {
+    const x = +h.getAttribute('x') + +h.getAttribute('width') - 4, y = +h.getAttribute('y') + 4;
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', 'tick');
+    g.setAttribute('transform', `translate(${x} ${y})`);
+    g.innerHTML = '<circle r="10"/><path d="M-4.6 0.4 L-1.4 3.6 L4.8 -3.4"/>';
+    h.after(g);
+  }
+  h.addEventListener('click', () => show(h.dataset.id, h));
+  h.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); show(h.dataset.id, h); } });
+});
+// Tabs
+const tabs = { 't-ft': 'tab-ft', 't-moe': 'tab-moe', 't-qa': 'tab-qa', 't-bench': 'tab-bench' };
+function pick(id) {
+  for (const [b, p] of Object.entries(tabs)) {
+    document.getElementById(b).setAttribute('aria-selected', b === id);
+    document.getElementById(p).hidden = b !== id;
+  }
+  document.getElementById('open-help').hidden = id !== 't-ft';
+  document.getElementById('legend-ft').hidden = id !== 't-ft';
+  document.getElementById('legend-moe').hidden = id !== 't-moe';
+  document.getElementById('legend-qa').hidden = id !== 't-qa';
+  document.getElementById('legend-bench').hidden = id !== 't-bench';
+  hide();
+}
+Object.keys(tabs).forEach(b => document.getElementById(b).addEventListener('click', () => pick(b)));
+pick(location.hash === '#ft' ? 't-ft' : location.hash === '#moe' ? 't-moe' : location.hash === '#qa' ? 't-qa' : 't-bench');
+</script>
+</body>
+</html>
