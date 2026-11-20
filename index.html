@@ -222,6 +222,9 @@
     .tabs a.ext, .tabs .vids summary { padding: 6px 11px; }
     .tabs .flow { font-size: 18px; padding: 0; }
   }
+  .part-h { display: flex; align-items: center; gap: 10px; margin: 6px 0 -6px; font: 700 15px var(--sans); color: var(--fg); }
+  .part-h .pn { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; background: var(--accent); color: #fffbea; font: 700 13px var(--mono); }
+  .part-h small { font: 400 13px var(--sans); color: var(--muted); }
 </style>
 </head>
 <body>
@@ -303,6 +306,7 @@
     <button class="open-help" id="open-help" type="button">More: runs, p-values, limits</button>
   </div>
 
+  <h2 class="part-h"><span class="pn">A</span>The model <small>what it is · grows with each tab</small></h2>
   <div class="canvas build">
     <svg id="build" viewBox="0 0 1120 320" role="img" aria-label="One model that grows with each step. Base: question and image, frozen vision tower and merger with about 269 tokens, frozen LLM, answer. Step 1 adds a random token drop and LoRA weights. Step 2 replaces the drop by a router and three trained experts with 16, 48 or 128 tokens. Step 3 lets the question steer the experts. Step 4 adds the GQA and TextVQA test sets.">
       <rect class="group" x="20" y="20" width="1080" height="290" rx="8"/>
@@ -393,6 +397,7 @@
   <h1>Drop-Aware Fine-Tuning Pipeline</h1>
   <p class="sub">Is the 4-point loss at 75% token removal caused by lost image data, or by input the model never saw in training? Two LoRA runs answer this. Started 14 Nov, 20:55; finished 15 Nov, 06:24. Answer: mostly lost image data.</p>
 
+  <h2 class="part-h"><span class="pn">B</span>How this step was trained and tested <small>data · training · evaluation</small></h2>
   <div class="canvas">
     <svg viewBox="0 0 1120 580" role="img" aria-label="Pipeline. Data: COCO train2014 annotations go to a question builder, which makes 2,000 yes/no training questions. The POPE test set has 300 questions from val2014. Training: the frozen Qwen3-VL-4B 4-bit model, a token drop of 0 to 75 percent for run C only, and a training step that updates only LoRA weights for about 2,000 steps. Run B uses no drop, run C uses the drop. Outputs: LoRA weights B and C. Evaluation: inference on 300 POPE questions at 0 to 100 percent drop, comparison with run A with McNemar tests, then a chart and write-up that answer: information loss or distribution shift.">
 
@@ -510,6 +515,7 @@
   <div class="tab" id="tab-moe" role="tabpanel" hidden>
   <h1>MoE Token Compressor</h1>
   <p class="sub">Done 16 Nov, 13:57. Result: MoE 86.0% with 19.3 tokens (target: more than 90% with fewer than 50). Expert 48 alone: 89.3% with 48 tokens. Three trained compressors ("experts") make 16, 48 or 128 image tokens from the ≈ 269 tokens of the merger. A router reads the question and picks one expert. Target: more than 90% POPE accuracy with a mean of fewer than 50 tokens. The base model does not change; all new parts are added.</p>
+  <h2 class="part-h"><span class="pn">B</span>How this step was trained and tested <small>data · training · evaluation</small></h2>
   <div class="canvas">
     <svg viewBox="0 310 1120 290" role="img" aria-label="MoE compressor. The image goes through the frozen vision tower and merger to about 269 tokens. A new router reads an image summary and the question and picks one of three new experts, which compress the tokens to 16, 48 or 128. The compressed tokens and the question go to the frozen LLM with LoRA, which answers yes or no. Training: cache the vision output, train the experts in one run, then train the router from saved answers with a cost per token. Evaluation: an attention control with no training, the MoE test on 300 POPE questions, and a chart of accuracy against tokens.">
       <rect class="group" x="20" y="20" width="1080" height="280" rx="8"/>
@@ -652,6 +658,7 @@
   <div class="tab" id="tab-qa" role="tabpanel" hidden>
   <h1>Question-Aware MoE</h1>
   <p class="sub">Done 17 Nov, 00:35. Result: no gain. No checkpoint was better than the old MoE on held-out images, so the fallback kept the old MoE. The POPE test gave the same 86.0% again. The experts also read the question. Thus the 16 or 48 tokens collect the image parts that the question asks about. The router and the experts train together. Target: more than 90% POPE accuracy with fewer than 20 tokens. At the start, the new model is the same as the old MoE. If the new model is not better on held-out images, the old experts stay.</p>
+  <h2 class="part-h"><span class="pn">B</span>How this step was trained and tested <small>data · training · evaluation</small></h2>
   <div class="canvas">
     <svg viewBox="0 370 1120 290" role="img" aria-label="Question-aware MoE. Same model as the MoE compressor tab: frozen vision tower and merger, router, 3 experts with 16, 48 or 128 tokens, frozen LLM with LoRA. New: the question also goes to a small part that shifts the queries of each expert, so the kept tokens depend on the question. This part starts at zero. Training: about 6,000 questions from the cached images, joint training of experts, new part and router with Gumbel-softmax, then selection on held-out images with a fallback to the old experts. Evaluation: test on 300 POPE questions, reference to the old MoE and expert 48, chart.">
       <rect class="group" x="20" y="20" width="1080" height="340" rx="8"/>
@@ -794,6 +801,7 @@
   <div class="tab" id="tab-bench" role="tabpanel" hidden>
   <h1>Beyond POPE</h1>
   <p class="sub">Done on 17 Nov, 19:21. Result: on GQA, expert 48 is close to all tokens. On TextVQA, all compression fails. Does expert 48 also work on real tasks? GQA asks about objects and their relations. TextVQA asks the model to read text in the image. This is the hardest case for compression. No new training: the experts are the same as in the MoE tab.</p>
+  <h2 class="part-h"><span class="pn">B</span>How this step was trained and tested <small>data · training · evaluation</small></h2>
   <div class="canvas">
     <svg viewBox="0 0 1120 500" role="img" aria-label="Beyond POPE. 300 GQA and 300 TextVQA questions go through the frozen vision tower and merger. Five methods use the same image: all tokens, random 48, attention control 48, trained expert 48 and expert 128. The frozen LLM answers; the score is exact match for GQA and VQA accuracy for TextVQA. Steps: checks, original model, experts, chart, and mixed training only if TextVQA fails.">
       <rect class="group" x="20" y="20" width="1080" height="330" rx="8"/>
