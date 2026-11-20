@@ -82,6 +82,15 @@
   .refs ol { margin: 0; padding-left: 1.3em; display: grid; gap: 4px; max-width: 90ch; }
   .refs a { color: var(--accent); }
   .tabs .tgroup { align-items: center; }
+  .build .ly { transition: opacity .3s; }
+  .build .ly.off { display: none; }
+  .build .ly.past { opacity: .38; }
+  .build .ly.fresh .tile, .build .ly.fresh .group.new { filter: drop-shadow(0 0 5px rgba(212,177,6,.95)); }
+  .build-key { margin: -8px 0 0; font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  .build-key .k { display: inline-block; width: 22px; height: 12px; border-radius: 3px; background: var(--canvas); border: 1.5px solid var(--line); }
+  .build-key .k.fresh { border-color: #d4b106; box-shadow: 0 0 5px rgba(212,177,6,.95); }
+  .build-key .k.past { opacity: .4; }
+  @media (prefers-reduced-motion: reduce) { .build .ly { transition: none; } }
   .tabs .flow { font: 700 22px/1 var(--sans); color: var(--accent); padding: 0 2px; }
   .tabs .aimd .menu.aim { display: block; width: min(560px, calc(100vw - 32px)); padding: 12px 16px; font: 400 14px/1.5 var(--sans); color: var(--fg); }
   .tabs .aimd .ic-aim { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fffbea; font-size: 12px; font-weight: 700; }
@@ -281,6 +290,92 @@
     <button class="open-help" id="open-help" type="button">More: runs, p-values, limits</button>
   </div>
 
+  <div class="canvas build">
+    <svg id="build" viewBox="0 0 1120 320" role="img" aria-label="One model that grows with each step. Base: question and image, frozen vision tower and merger with about 269 tokens, frozen LLM, answer. Step 1 adds a random token drop and LoRA weights. Step 2 replaces the drop by a router and three trained experts with 16, 48 or 128 tokens. Step 3 lets the question steer the experts. Step 4 adds the GQA and TextVQA test sets.">
+      <rect class="group" x="20" y="20" width="1080" height="290" rx="8"/>
+      <text class="t-group" x="34" y="40">The model · it grows with each step</text>
+      <text class="t-pick" id="build-cap" x="1086" y="40" text-anchor="end" style="fill: var(--accent); font-size: 12px"></text>
+      <g class="ly" data-in="0">
+        <path class="flow" d="M170,76 L925,76 L925,138" marker-end="url(#ah)"/>
+        <path class="flow" d="M170,172 L188,172" marker-end="url(#ah)"/>
+        <path class="flow" d="M320,172 L338,172" marker-end="url(#ah)"/>
+        <path class="flow" d="M980,172 L998,172" marker-end="url(#ah)"/>
+        <rect class="tile c-in" x="40" y="52" width="130" height="48" rx="6"/>
+        <text class="t-strong" x="52" y="76">Question</text><text class="t-dim" x="52" y="93">"Is there a dog?"</text>
+        <rect class="tile c-in" x="40" y="140" width="130" height="64" rx="6"/>
+        <text class="t-strong" x="52" y="164">Image</text><text class="t-dim" x="52" y="182">COCO · POPE</text>
+        <rect class="tile c-frozen" x="190" y="140" width="130" height="64" rx="6"/>
+        <text class="t-strong" x="202" y="164">Vision tower</text><text class="t-dim" x="202" y="182">frozen</text>
+        <rect class="tile c-frozen" x="340" y="140" width="150" height="64" rx="6"/>
+        <text class="t-strong" x="352" y="164">Merger</text><text class="t-dim" x="352" y="182">frozen · ≈ 269 tokens</text>
+        <rect class="tile c-lora" x="880" y="140" width="100" height="64" rx="6"/>
+        <text class="t-strong" x="892" y="164">LLM</text><text class="t-dim" x="892" y="182">frozen</text>
+        <rect class="tile c-in" x="1000" y="140" width="86" height="64" rx="6"/>
+        <text class="t-strong" x="1012" y="164">Answer</text><text class="t-dim" x="1012" y="182">yes / no</text>
+        <rect class="hot" data-id="m_q" x="40" y="52" width="130" height="48" rx="6" tabindex="0" role="button"/>
+        <rect class="hot" data-id="m_img" x="40" y="140" width="130" height="64" rx="6" tabindex="0" role="button"/>
+        <rect class="hot" data-id="m_vis" x="190" y="140" width="130" height="64" rx="6" tabindex="0" role="button"/>
+        <rect class="hot" data-id="m_merge" x="340" y="140" width="150" height="64" rx="6" tabindex="0" role="button"/>
+        <rect class="hot" data-id="m_llm" x="880" y="140" width="100" height="64" rx="6" tabindex="0" role="button"/>
+        <rect class="hot" data-id="m_ans" x="1000" y="140" width="86" height="64" rx="6" tabindex="0" role="button"/>
+      </g>
+      <g class="ly" data-in="1" data-out="2">
+        <path class="flow" d="M490,172 L528,172" marker-end="url(#ah)"/>
+        <path class="flow" d="M850,172 L878,172" marker-end="url(#ah)"/>
+        <rect class="tile drop" x="530" y="150" width="320" height="44" rx="6"/>
+        <use href="#i-grid" class="icon drop" x="542" y="160"/>
+        <text class="t-strong" x="574" y="170">Token drop</text><text class="t-dim" x="574" y="186">random · 0–75% of the tokens removed</text>
+        <rect class="hot" data-id="drop" x="530" y="150" width="320" height="44" rx="6" tabindex="0" role="button"/>
+      </g>
+      <g class="ly" data-in="1">
+        <text class="c-lora-t" x="892" y="198" style="font-size: 12px">+ LoRA</text>
+        <rect class="hot" data-id="lora" x="880" y="186" width="100" height="18" rx="4" tabindex="0" role="button"/>
+      </g>
+      <g class="ly" data-in="2">
+        <path class="flow" d="M490,172 L510,172 L510,199 L528,199" marker-end="url(#ah)"/>
+        <path class="flow" d="M852,199 L866,199 L866,172 L878,172" marker-end="url(#ah)"/>
+        <path class="flow" d="M690,76 L690,102" marker-end="url(#ah)"/>
+        <circle cx="690" cy="76" r="3.5" fill="var(--muted)"/>
+        <rect class="group new" x="520" y="94" width="340" height="140" rx="8" stroke-dasharray="6 4"/>
+        <rect class="tile c-router" x="532" y="104" width="316" height="40" rx="6"/>
+        <text class="t-strong" x="544" y="122">Router</text><text class="t-dim" x="544" y="138">image summary + question → picks 1 expert</text>
+        <path class="flow pick" d="M582,144 L582,174" marker-end="url(#ap)"/>
+        <path class="flow pick" d="M690,144 L690,174" marker-end="url(#ap)"/>
+        <path class="flow pick" d="M798,144 L798,174" marker-end="url(#ap)"/>
+        <rect class="tile c-exp1" x="532" y="176" width="100" height="46" rx="6"/>
+        <text class="t-strong t-mid" x="582" y="196">16</text><text class="t-dim t-mid" x="582" y="213">tokens</text>
+        <rect class="tile c-exp2" x="640" y="176" width="100" height="46" rx="6"/>
+        <text class="t-strong t-mid" x="690" y="196">48</text><text class="t-dim t-mid" x="690" y="213">tokens</text>
+        <rect class="tile c-exp3" x="748" y="176" width="100" height="46" rx="6"/>
+        <text class="t-strong t-mid" x="798" y="196">128</text><text class="t-dim t-mid" x="798" y="213">tokens</text>
+        <rect class="hot" data-id="m_router" x="532" y="104" width="316" height="40" rx="6" tabindex="0" role="button"/>
+        <rect class="hot" data-id="m_exp" x="532" y="176" width="100" height="46" rx="6" tabindex="0" role="button"/>
+        <rect class="hot" data-id="m_exp" x="640" y="176" width="100" height="46" rx="6" tabindex="0" role="button"/>
+        <rect class="hot" data-id="m_exp" x="748" y="176" width="100" height="46" rx="6" tabindex="0" role="button"/>
+      </g>
+      <g class="ly" data-in="3">
+        <path class="flow qa" d="M40,90 L28,90 L28,297 L530,297" marker-end="url(#aq)"/>
+        <rect class="tile c-qa" x="532" y="262" width="316" height="40" rx="6"/>
+        <text class="t-strong" x="544" y="280">Question → expert queries</text><text class="t-dim" x="544" y="296">kept tokens depend on the question</text>
+        <path class="flow qa" d="M582,260 L582,225" marker-end="url(#aq)"/>
+        <path class="flow qa" d="M690,260 L690,225" marker-end="url(#aq)"/>
+        <path class="flow qa" d="M798,260 L798,225" marker-end="url(#aq)"/>
+        <rect class="hot" data-id="q_qa" x="532" y="262" width="316" height="40" rx="6" tabindex="0" role="button"/>
+      </g>
+      <g class="ly" data-in="4">
+        <path class="flow" d="M105,232 L105,207" marker-end="url(#ah)"/>
+        <rect class="tile c-in" x="40" y="234" width="130" height="52" rx="6"/>
+        <text class="t-strong" x="52" y="255">GQA · TextVQA</text><text class="t-dim" x="52" y="273">300 + 300 questions</text>
+        <rect class="hot" data-id="b_gqa" x="40" y="234" width="130" height="52" rx="6" tabindex="0" role="button"/>
+        <path class="flow" d="M1043,206 L1043,238" marker-end="url(#ah)"/>
+        <rect class="tile c-eval" x="960" y="240" width="126" height="56" rx="6"/>
+        <text class="t-strong" x="972" y="262">Score</text><text class="t-dim" x="972" y="280">5 methods</text>
+        <rect class="hot" data-id="b_score" x="960" y="240" width="126" height="56" rx="6" tabindex="0" role="button"/>
+      </g>
+    </svg>
+  </div>
+  <p class="build-key"><span class="k fresh"></span>new in this step <span class="k past"></span>from an earlier step · Below: how this step was trained and tested</p>
+
   <div class="tab" id="tab-ft" role="tabpanel">
   <h1>Drop-Aware Fine-Tuning Pipeline</h1>
   <p class="sub">Is the 4-point loss at 75% token removal caused by lost image data, or by input the model never saw in training? Two LoRA runs answer this. Started 14 Nov, 20:55; finished 15 Nov, 06:24. Answer: mostly lost image data.</p>
@@ -403,7 +498,7 @@
   <h1>MoE Token Compressor</h1>
   <p class="sub">Done 16 Nov, 13:57. Result: MoE 86.0% with 19.3 tokens (target: more than 90% with fewer than 50). Expert 48 alone: 89.3% with 48 tokens. Three trained compressors ("experts") make 16, 48 or 128 image tokens from the ≈ 269 tokens of the merger. A router reads the question and picks one expert. Target: more than 90% POPE accuracy with a mean of fewer than 50 tokens. The base model does not change; all new parts are added.</p>
   <div class="canvas">
-    <svg viewBox="0 0 1120 600" role="img" aria-label="MoE compressor. The image goes through the frozen vision tower and merger to about 269 tokens. A new router reads an image summary and the question and picks one of three new experts, which compress the tokens to 16, 48 or 128. The compressed tokens and the question go to the frozen LLM with LoRA, which answers yes or no. Training: cache the vision output, train the experts in one run, then train the router from saved answers with a cost per token. Evaluation: an attention control with no training, the MoE test on 300 POPE questions, and a chart of accuracy against tokens.">
+    <svg viewBox="0 310 1120 290" role="img" aria-label="MoE compressor. The image goes through the frozen vision tower and merger to about 269 tokens. A new router reads an image summary and the question and picks one of three new experts, which compress the tokens to 16, 48 or 128. The compressed tokens and the question go to the frozen LLM with LoRA, which answers yes or no. Training: cache the vision output, train the experts in one run, then train the router from saved answers with a cost per token. Evaluation: an attention control with no training, the MoE test on 300 POPE questions, and a chart of accuracy against tokens.">
       <rect class="group" x="20" y="20" width="1080" height="280" rx="8"/>
       <text class="t-group" x="34" y="40">Model at inference</text>
       <rect class="tile c-in" x="40" y="52" width="140" height="48" rx="6"/>
@@ -524,16 +619,6 @@
       <text class="t-dim" x="956" y="547">page update</text><text class="t-dim" x="956" y="563">≈ 15 min</text>
 
       <!-- Click targets -->
-      <rect class="hot" data-id="m_q" x="40" y="52" width="140" height="48" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="m_img" x="40" y="140" width="140" height="64" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="m_vis" x="200" y="140" width="140" height="64" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="m_merge" x="360" y="140" width="160" height="64" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="m_llm" x="880" y="140" width="110" height="64" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="m_ans" x="1010" y="140" width="80" height="64" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="m_router" x="560" y="126" width="270" height="46" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="m_exp" x="560" y="210" width="80" height="50" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="m_exp" x="655" y="210" width="80" height="50" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="m_exp" x="750" y="210" width="80" height="50" rx="6" tabindex="0" role="button"/>
       <rect class="hot" data-id="m_cache" x="40" y="356" width="150" height="64" rx="6" tabindex="0" role="button"/>
       <rect class="hot" data-id="m_texp" x="210" y="356" width="150" height="64" rx="6" tabindex="0" role="button"/>
       <rect class="hot" data-id="m_trouter" x="380" y="356" width="150" height="64" rx="6" tabindex="0" role="button"/>
@@ -555,7 +640,7 @@
   <h1>Question-Aware MoE</h1>
   <p class="sub">Done 17 Nov, 00:35. Result: no gain. No checkpoint was better than the old MoE on held-out images, so the fallback kept the old MoE. The POPE test gave the same 86.0% again. The experts also read the question. Thus the 16 or 48 tokens collect the image parts that the question asks about. The router and the experts train together. Target: more than 90% POPE accuracy with fewer than 20 tokens. At the start, the new model is the same as the old MoE. If the new model is not better on held-out images, the old experts stay.</p>
   <div class="canvas">
-    <svg viewBox="0 0 1120 660" role="img" aria-label="Question-aware MoE. Same model as the MoE compressor tab: frozen vision tower and merger, router, 3 experts with 16, 48 or 128 tokens, frozen LLM with LoRA. New: the question also goes to a small part that shifts the queries of each expert, so the kept tokens depend on the question. This part starts at zero. Training: about 6,000 questions from the cached images, joint training of experts, new part and router with Gumbel-softmax, then selection on held-out images with a fallback to the old experts. Evaluation: test on 300 POPE questions, reference to the old MoE and expert 48, chart.">
+    <svg viewBox="0 370 1120 290" role="img" aria-label="Question-aware MoE. Same model as the MoE compressor tab: frozen vision tower and merger, router, 3 experts with 16, 48 or 128 tokens, frozen LLM with LoRA. New: the question also goes to a small part that shifts the queries of each expert, so the kept tokens depend on the question. This part starts at zero. Training: about 6,000 questions from the cached images, joint training of experts, new part and router with Gumbel-softmax, then selection on held-out images with a fallback to the old experts. Evaluation: test on 300 POPE questions, reference to the old MoE and expert 48, chart.">
       <rect class="group" x="20" y="20" width="1080" height="340" rx="8"/>
       <text class="t-group" x="34" y="40">Model at inference</text>
       <rect class="tile c-in" x="40" y="52" width="140" height="48" rx="6"/>
@@ -677,17 +762,6 @@
       <text class="t-dim" x="934" y="607">page update</text><text class="t-dim" x="934" y="623">≈ 15 min</text>
 
       <!-- Click targets -->
-      <rect class="hot" data-id="q_q" x="40" y="52" width="140" height="48" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="q_img" x="40" y="140" width="140" height="64" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="q_vis" x="200" y="140" width="140" height="64" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="q_merge" x="360" y="140" width="160" height="64" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="q_llm" x="880" y="140" width="110" height="64" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="q_ans" x="1010" y="140" width="80" height="64" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="q_router" x="560" y="126" width="270" height="46" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="q_exp" x="560" y="210" width="80" height="50" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="q_exp" x="655" y="210" width="80" height="50" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="q_exp" x="750" y="210" width="80" height="50" rx="6" tabindex="0" role="button"/>
-      <rect class="hot" data-id="q_qa" x="560" y="290" width="270" height="46" rx="6" tabindex="0" role="button"/>
       <rect class="hot" data-id="q_more" x="40" y="416" width="150" height="64" rx="6" tabindex="0" role="button"/>
       <rect class="hot" data-id="q_joint" x="210" y="416" width="150" height="64" rx="6" tabindex="0" role="button"/>
       <rect class="hot" data-id="q_select" x="380" y="416" width="150" height="64" rx="6" tabindex="0" role="button"/>
@@ -1080,8 +1154,20 @@ function pick(id) {
   document.getElementById('legend-moe').hidden = id !== 't-moe';
   document.getElementById('legend-qa').hidden = id !== 't-qa';
   document.getElementById('legend-bench').hidden = id !== 't-bench';
+  setStep({ 't-ft': 1, 't-moe': 2, 't-qa': 3, 't-bench': 4 }[id]);
   hide();
 }
+const CAP = { 1: 'Step 1 adds: random token drop + LoRA', 2: 'Step 2 adds: router + 3 trained experts (they replace the random drop)', 3: 'Step 3 adds: the question steers the experts', 4: 'Step 4 adds: new test sets GQA and TextVQA' };
+function setStep(n) {
+  document.querySelectorAll('#build .ly').forEach(g => {
+    const a = +g.dataset.in, b = +(g.dataset.out || 99);
+    g.classList.toggle('off', n < a || n >= b);
+    g.classList.toggle('fresh', a > 0 && a === n);
+    g.classList.toggle('past', a > 0 && a < n && n < b);
+  });
+  document.getElementById('build-cap').textContent = CAP[n];
+}
+setStep(1);
 Object.keys(tabs).forEach(b => document.getElementById(b).addEventListener('click', () => pick(b)));
 const menus = [...document.querySelectorAll('.tabs details.vids')];
 document.addEventListener('click', e => menus.forEach(m => { if (m.open && !m.contains(e.target)) m.open = false; }));
